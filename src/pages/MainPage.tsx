@@ -250,7 +250,7 @@ const MainContent = styled.main`
 const ChatContainer = styled.div`
   background-color: #000;
   padding: 2rem;
-  padding-top: 1.3rem;
+  padding-top: 1.2rem;
   color: white;
   flex: 1;
   display: flex;
@@ -421,6 +421,20 @@ const LoadingIndicator = styled.div`
   font-family: 'DM Mono', monospace;
 `;
 
+const ChatHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: top;
+`;
+
+const ViewerCount = styled.div`
+  font-size: 0.9rem;
+  color: #666;
+  font-family: 'DM Mono', monospace;
+  padding-right: 0.2rem;
+  padding-top: 0.1rem;
+`;
+
 const MainPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -433,12 +447,18 @@ const MainPage: React.FC = () => {
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [oldestLoadedTimestamp, setOldestLoadedTimestamp] = useState<string | null>(null);
+  const [viewerCount, setViewerCount] = useState(0);
+  const [isInitialViewerCount, setIsInitialViewerCount] = useState(true);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
       setIsConnected(connected);
     });
   }, []);
+
+  useEffect(() => {
+    setIsInitialViewerCount(true);
+  }, [navigationTitle]);
 
   useEffect(() => {
     // Clear messages when switching toys
@@ -524,10 +544,46 @@ const MainPage: React.FC = () => {
         console.log('Subscription status:', status);
       });
 
+    // Add presence channel
+    const presenceChannel = supabase.channel(`presence:${navigationTitle}`, {
+      config: {
+        presence: {
+          key: anonymousId,
+        },
+      },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const newCount = Object.keys(state).length;
+
+        if (isInitialViewerCount) {
+          setViewerCount(newCount);
+          setIsInitialViewerCount(false);
+        } else {
+          setTimeout(() => {
+            setViewerCount(newCount);
+          }, 1000);
+        }
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('Join:', key, newPresences);
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('Leave:', key, leftPresences);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ user: anonymousId });
+        }
+      });
+
     loadToyMessages();
 
     return () => {
       channel.unsubscribe();
+      presenceChannel.unsubscribe();
     };
   }, [navigationTitle, isConnected]);
 
@@ -695,8 +751,8 @@ const MainPage: React.FC = () => {
           />
         </NavigationContainer>
         <AuthButtons>
-          <LoginButton>Log in</LoginButton>
-          <SignUpButton>Sign up</SignUpButton>
+          <LoginButton><s>Log in</s></LoginButton>
+          <SignUpButton><s>Sign up</s></SignUpButton>
         </AuthButtons>
       </Header>
       
@@ -708,7 +764,12 @@ const MainPage: React.FC = () => {
           </PlaceholderContainer>
         ) : (
           <ChatContainer>
-            <ChatTitle>{navigationTitle}</ChatTitle>
+            <ChatHeader>
+              <ChatTitle>{navigationTitle}</ChatTitle>
+              <ViewerCount>
+                {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
+              </ViewerCount>
+            </ChatHeader>
             <MessageContainer 
               ref={messageContainerRef}
               onScroll={handleScroll}
