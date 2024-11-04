@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import halftonePattern from '../assets/untitled.png';
 import logoSvg from '../assets/noun-spinning-top-753468.svg';
@@ -8,7 +8,7 @@ import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pin
 interface Message {
   id: string;
   content: string;
-  is_user: boolean;
+  sender_id: string;
   created_at: string;
   room_id: string;
   local?: boolean;
@@ -34,7 +34,9 @@ function stringToColor(str: string): string {
 }
 
 const PageContainer = styled.div<{ $bgColor: string }>`
-  min-height: 100vh;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
   background-color: ${props => props.$bgColor};
   position: relative;
   display: flex;
@@ -190,25 +192,25 @@ const MainContent = styled.main`
   max-width: 1200px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 `;
 
 const ChatContainer = styled.div`
   background-color: #000;
-  //border-radius: 1rem;
   padding: 2rem;
   padding-top: 1.3rem;
   color: white;
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  overflow: hidden;
   box-shadow: 0 0 120px rgba(56, 132, 86, 0.25);
 `;
 
 const ChatTitle = styled.h1`
   font-size: 2.5rem;
   color: white;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0rem;
   width: fit-content;
   max-width: 100%;
   border-bottom: 2px solid #282828;
@@ -220,7 +222,23 @@ const MessageContainer = styled.div`
   gap: 1rem;
   overflow-y: auto;
   flex: 1;
-  padding-bottom: 1rem;
+  padding: 1rem;
+  padding-right: 0.5rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Custom scrollbar styling */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
 `;
 
 const MessageBubble = styled.div<{ $isUser?: boolean }>`
@@ -274,9 +292,9 @@ const PlaceholderText = styled.div`
 
 const PlaceholderSubtext = styled.div`
   font-size: 1.2rem;
-  opacity: 0.5;
+  opacity: 1;
   margin-top: -1rem;
-  color: #9A9A98;
+  color: #9c9c99;
 `;
 
 const EmptyStateContainer = styled.div`
@@ -318,6 +336,8 @@ const MainPage: React.FC = () => {
   const [newMessage, setNewMessage] = useState('');
   const [navigationTitle, setNavigationTitle] = useState('main');
   const backgroundColor = stringToColor(navigationTitle);
+  const [anonymousId] = useState(() => crypto.randomUUID());
+  const messageContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Clear messages when switching toys
@@ -364,6 +384,8 @@ const MainPage: React.FC = () => {
         
         if (existingMessages) {
           setMessages(existingMessages);
+          // Force scroll to bottom after messages are loaded
+          setTimeout(() => scrollToBottom(true), 100);
         }
       } catch (error) {
         console.error('Error loading messages:', error);
@@ -406,11 +428,10 @@ const MainPage: React.FC = () => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    // Add message with local flag for all rooms
     const tempMessage: Message = {
       id: crypto.randomUUID(),
       content: newMessage,
-      is_user: true,
+      sender_id: anonymousId,
       created_at: new Date().toISOString(),
       room_id: navigationTitle,
       local: true
@@ -419,12 +440,11 @@ const MainPage: React.FC = () => {
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
 
-    // Send to Supabase
     const { data, error } = await supabase
       .from('messages')
       .insert({
         content: newMessage,
-        is_user: true,
+        sender_id: anonymousId,
         room_id: navigationTitle
       })
       .select();
@@ -438,16 +458,31 @@ const MainPage: React.FC = () => {
   const handleNavigationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // First replace spaces with underscores
     let value = e.target.value;
-    value = value.replace(/\s/g, '_');
-    value = value.replace(/\//g, '÷');
-    value = value.replace(/\*/g, '×');
-    value = value.toLowerCase();
+        value = value.replace(/\s/g, '_');
+        value = value.replace(/\//g, '÷');
+        value = value.replace(/\*/g, '×');
+        value = value.toLowerCase();
     
     // Then filter out any disallowed characters
     value = value.replace(/[^a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]/g, '');
     
     setNavigationTitle(value);
   };
+
+  const scrollToBottom = (force = false) => {
+    if (messageContainerRef.current) {
+      const { scrollHeight, scrollTop, clientHeight } = messageContainerRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+
+      if (force || isNearBottom) {
+        messageContainerRef.current.scrollTop = scrollHeight;
+      }
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   return (
     <PageContainer $bgColor={backgroundColor}>
@@ -480,10 +515,13 @@ const MainPage: React.FC = () => {
         ) : (
           <ChatContainer>
             <ChatTitle>{navigationTitle}</ChatTitle>
-            <MessageContainer>
+            <MessageContainer ref={messageContainerRef}>
               {messages.length > 0 ? (
                 messages.map((message, index) => (
-                  <MessageBubble key={index} $isUser={message.is_user}>
+                  <MessageBubble 
+                    key={index} 
+                    $isUser={message.sender_id === anonymousId}
+                  >
                     {message.content}
                   </MessageBubble>
                 ))
