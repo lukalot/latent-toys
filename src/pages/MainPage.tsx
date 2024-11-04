@@ -246,22 +246,29 @@ const MessageBubble = styled.div<{ $isUser?: boolean }>`
   max-width: 80%;
   padding: 0.65rem 0.9rem;
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
-  background-color: ${props => props.$isUser ? '#fff' : '#2d2d2d'};
-  color: ${props => props.$isUser ? '#000' : '#fff'};
+  background-color: ${props => props.$isUser ? '#2d2d2d' : '#fff'};
+  color: ${props => props.$isUser ? '#fff' : '#000'};
 `;
 
 const InputContainer = styled.form`
   margin-top: auto;
 `;
 
-const MessageInput = styled.input`
+const MessageInput = styled.textarea`
   width: 100%;
   padding: 1rem;
+  padding-top: 0.8rem;
+  padding-bottom: 0.9rem;
   border: 1px solid #2d2d2d;
-  //border-radius: 0.5rem;
   font-size: 1rem;
   background-color: #2d2d2d;
   color: white;
+  resize: none;
+  max-height: 12rem;
+  font-family: inherit;
+  line-height: 1.3;
+  scrollbar-width: none;
+  height: 100%;
   
   &:focus {
     outline: none;
@@ -269,8 +276,8 @@ const MessageInput = styled.input`
   }
 
   &::placeholder {
-    color: #000;
-    font-weight: 900;
+    color: #777;
+    font-weight: 400;
     opacity: 1;
   }
 `;
@@ -442,6 +449,12 @@ const MainPage: React.FC = () => {
 
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
+    
+    // Reset textarea height
+    const textarea = document.querySelector('textarea');
+    if (textarea) {
+      textarea.style.height = 'auto';  // Reset to default height
+    }
 
     const { data, error } = await supabase
       .from('messages')
@@ -486,6 +499,27 @@ const MainPage: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        // Allow newline when Shift is pressed
+        return;
+      }
+      e.preventDefault();
+      handleSubmitMessage(e);
+    }
+  };
+
+  const autoResizeTextArea = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target;
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto';
+    // Set new height based on scrollHeight
+    textarea.style.height = `${textarea.scrollHeight}px`;
+    // Update the message state
+    setNewMessage(textarea.value);
+  };
 
   return (
     <PageContainer $bgColor={backgroundColor}>
@@ -543,10 +577,11 @@ const MainPage: React.FC = () => {
             </MessageContainer>
             <InputContainer onSubmit={handleSubmitMessage}>
               <MessageInput
-                type="text"
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={autoResizeTextArea}
+                onKeyDown={handleKeyDown}
                 placeholder="Type your message..."
+                rows={1}
               />
             </InputContainer>
           </ChatContainer>
