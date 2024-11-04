@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import halftonePattern from '../assets/untitled.png';
 import logoSvg from '../assets/noun-spinning-top-753468.svg';
+import { supabase } from '../lib/supabaseClient';
+import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
 
 interface Message {
+  id: string;
   content: string;
-  isUser?: boolean;
+  is_user: boolean;
+  created_at: string;
+  room_id: string;
+  local?: boolean;
 }
 
 function stringToColor(str: string): string {
@@ -27,9 +33,9 @@ function stringToColor(str: string): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-const PageContainer = styled.div<{ bgColor: string }>`
+const PageContainer = styled.div<{ $bgColor: string }>`
   min-height: 100vh;
-  background-color: ${props => props.bgColor};
+  background-color: ${props => props.$bgColor};
   position: relative;
   display: flex;
   flex-direction: column;
@@ -217,13 +223,12 @@ const MessageContainer = styled.div`
   padding-bottom: 1rem;
 `;
 
-const MessageBubble = styled.div<{ isUser?: boolean }>`
+const MessageBubble = styled.div<{ $isUser?: boolean }>`
   max-width: 80%;
   padding: 0.65rem 0.9rem;
-  //border-radius: 0.7rem;
-  align-self: ${props => props.isUser ? 'flex-end' : 'flex-start'};
-  background-color: ${props => props.isUser ? '#6e56cf' : '#2d2d2d'};
-  color: white;
+  align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
+  background-color: ${props => props.$isUser ? '#fff' : '#2d2d2d'};
+  color: ${props => props.$isUser ? '#000' : '#fff'};
 `;
 
 const InputContainer = styled.form`
@@ -271,26 +276,162 @@ const PlaceholderSubtext = styled.div`
   font-size: 1.2rem;
   opacity: 0.5;
   margin-top: -1rem;
+  color: #9A9A98;
+`;
+
+const EmptyStateContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: #9A9A98;
+  flex: 1;
+`;
+
+const EmptyStateText = styled.div`
+  font-size: 1.2rem;
+  text-align: center;
+  font-family: 'DM Mono', monospace;
+  opacity: 0.5;
+`;
+
+const EmptyStateImage = styled.img`
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.5rem;
+  animation: playOnce 1s steps(1) forwards;
+  opacity: 0.29;
+
+  @keyframes playOnce {
+    from {
+      animation-play-state: running;
+    }
+    to {
+      animation-play-state: paused;
+    }
+  }
 `;
 
 const MainPage: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    { content: "Welcome! How can I help you today?", isUser: false },
-    { content: "Hello! I'd like to generate some images.", isUser: true },
-    { content: "I can help you with that. What kind of images would you like to create?", isUser: false },
-    { content: "I'd like to create some images of trees.", isUser: true },
-    { content: "I can help you with that. What kind of trees would you like to create?", isUser: false },
-    { content: "I'd like to create some images of trees.", isUser: true },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [navigationTitle, setNavigationTitle] = useState('main');
   const backgroundColor = stringToColor(navigationTitle);
 
-  const handleSubmitMessage = (e: React.FormEvent) => {
+  useEffect(() => {
+    // Clear messages when switching toys
+    setMessages([]);
+    
+    if (navigationTitle === 'main') {
+      // Set default messages for main page
+      setMessages([
+        { content: "Welcome to latent.toys!", is_user: false, id: crypto.randomUUID(), created_at: new Date().toISOString(), room_id: 'main' },
+        { content: "Enter a toy name in the navigation bar to begin.", is_user: false, id: crypto.randomUUID(), created_at: new Date().toISOString(), room_id: 'main' },
+      ]);
+      return;
+    }
+
+    // Load messages for the toy
+    const loadToyMessages = async () => {
+      try {
+        console.log('Loading messages for:', navigationTitle);
+
+        // First ensure the toy exists
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .upsert({ id: navigationTitle })
+          .select();
+
+        if (roomError) {
+          console.error('Error creating/updating room:', roomError);
+          return;
+        }
+
+        // Then get all messages for this room
+        const { data: existingMessages, error: messagesError } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('room_id', navigationTitle)
+          .order('created_at', { ascending: true });
+
+        if (messagesError) {
+          console.error('Error fetching messages:', messagesError);
+          return;
+        }
+
+        console.log('Fetched messages:', existingMessages);
+        
+        if (existingMessages) {
+          setMessages(existingMessages);
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      }
+    };
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel(`room:${navigationTitle}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `room_id=eq.${navigationTitle}`,
+        },
+        (payload) => {
+          console.log('Received new message:', payload);
+          setMessages(current => {
+            const filtered = current.filter(msg => 
+              !(msg.local && msg.content === payload.new.content)
+            );
+            return [...filtered, payload.new as Message];
+          });
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+
+    loadToyMessages();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [navigationTitle]);
+
+  const handleSubmitMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      setMessages([...messages, { content: newMessage, isUser: true }]);
-      setNewMessage('');
+    if (!newMessage.trim()) return;
+
+    // Add message with local flag for all rooms
+    const tempMessage: Message = {
+      id: crypto.randomUUID(),
+      content: newMessage,
+      is_user: true,
+      created_at: new Date().toISOString(),
+      room_id: navigationTitle,
+      local: true
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+    setNewMessage('');
+
+    // Send to Supabase
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        content: newMessage,
+        is_user: true,
+        room_id: navigationTitle
+      })
+      .select();
+
+    if (error) {
+      console.error('Error saving message:', error);
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
     }
   };
 
@@ -309,7 +450,7 @@ const MainPage: React.FC = () => {
   };
 
   return (
-    <PageContainer bgColor={backgroundColor}>
+    <PageContainer $bgColor={backgroundColor}>
       <Header>
         <LogoContainer>
           <LogoIcon src={logoSvg} alt="Latent Toys Logo" />
@@ -340,11 +481,24 @@ const MainPage: React.FC = () => {
           <ChatContainer>
             <ChatTitle>{navigationTitle}</ChatTitle>
             <MessageContainer>
-              {messages.map((message, index) => (
-                <MessageBubble key={index} isUser={message.isUser}>
-                  {message.content}
-                </MessageBubble>
-              ))}
+              {messages.length > 0 ? (
+                messages.map((message, index) => (
+                  <MessageBubble key={index} $isUser={message.is_user}>
+                    {message.content}
+                  </MessageBubble>
+                ))
+              ) : (
+                <EmptyStateContainer>
+                  <EmptyStateImage 
+                    src={horseAnimation} 
+                    alt="Rocking horse animation"
+                  />
+                  <EmptyStateText>
+                    you found an undiscovered toy<br />
+                    send a message
+                  </EmptyStateText>
+                </EmptyStateContainer>
+              )}
             </MessageContainer>
             <InputContainer onSubmit={handleSubmitMessage}>
               <MessageInput
