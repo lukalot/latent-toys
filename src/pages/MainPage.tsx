@@ -269,7 +269,9 @@ const MessageInput = styled.input`
   }
 
   &::placeholder {
-    color: #888;
+    color: #000;
+    font-weight: 900;
+    opacity: 1;
   }
 `;
 
