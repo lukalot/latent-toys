@@ -2,17 +2,69 @@ import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import halftonePattern from '../assets/untitled.png';
 import logoSvg from '../assets/noun-spinning-top-753468.svg';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, checkSupabaseConnection } from '../lib/supabaseClient';
 import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
 
 interface Message {
   id: string;
   content: string;
   sender_id: string;
+  user_number: number;
   created_at: string;
   room_id: string;
   local?: boolean;
 }
+
+interface RoomUserNumber {
+  room_id: string;
+  user_number: number;
+}
+
+const shapeNames = [
+  // 1D
+  "POINT",
+  "LINE",
+  
+  // 2D
+  "CIRCLE", 
+  "TRIANGLE",
+  "SQUARE",
+  "PENTAGON",
+  "HEXAGON",
+  "HEPTAGON", 
+  "OCTAGON",
+  "NONAGON",
+  "DECAGON",
+  "ICOSAGON",
+  
+  // 3D
+  "SPHERE",
+  "CONE",
+  "CYLINDER",
+  "TETRAHEDRON", 
+  "CUBE",
+  "OCTAHEDRON",
+  "ICOSAHEDRON",
+  
+  // 4D
+  "HYPERSPHERE",
+  "PENTATOPE",
+  "TESSERACT"
+];
+
+const getNextUserNumber = (messages: Message[]): number => {
+  const oneHourAgo = new Date();
+  oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+
+  const recentMessages = messages.filter(msg => 
+    new Date(msg.created_at) > oneHourAgo
+  );
+
+  const usedNumbers = recentMessages.map(msg => msg.user_number);
+  const maxNumber = Math.max(0, ...usedNumbers);
+  
+  return maxNumber + 1;
+};
 
 function stringToColor(str: string): string {
   // Special case for "main"
@@ -341,6 +393,34 @@ const EmptyStateImage = styled.img`
   }
 `;
 
+const MessageHeader = styled.div`
+  font-size: 0.8rem;
+  opacity: 0.5;
+  margin-bottom: 0.2rem;
+  font-family: 'DM Mono', monospace;
+  display: flex;
+  gap: 0.3rem;
+  align-items: baseline;
+`;
+
+const ShapeName = styled.span``;
+
+const LoopCount = styled.span`
+  font-size: 0.7rem;
+  opacity: 0.7;
+`;
+
+const MESSAGES_PER_PAGE = 20;
+const SCROLL_THRESHOLD = 100; // pixels from top to trigger loading more
+
+const LoadingIndicator = styled.div`
+  text-align: center;
+  padding: 1rem;
+  color: #666;
+  font-size: 0.9rem;
+  font-family: 'DM Mono', monospace;
+`;
+
 const MainPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -348,26 +428,33 @@ const MainPage: React.FC = () => {
   const backgroundColor = stringToColor(navigationTitle);
   const [anonymousId] = useState(() => crypto.randomUUID());
   const messageContainerRef = useRef<HTMLDivElement>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [roomUserNumbers, setRoomUserNumbers] = useState<RoomUserNumber[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [oldestLoadedTimestamp, setOldestLoadedTimestamp] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkSupabaseConnection().then(connected => {
+      setIsConnected(connected);
+    });
+  }, []);
 
   useEffect(() => {
     // Clear messages when switching toys
     setMessages([]);
     
-    if (navigationTitle === 'main') {
-      // Set default messages for main page
-      setMessages([
-        { content: "Welcome to latent.toys!", is_user: false, id: crypto.randomUUID(), created_at: new Date().toISOString(), room_id: 'main' },
-        { content: "Enter a toy name in the navigation bar to begin.", is_user: false, id: crypto.randomUUID(), created_at: new Date().toISOString(), room_id: 'main' },
-      ]);
-      return;
-    }
-
-    // Load messages for the toy
+    // Load messages for the room
     const loadToyMessages = async () => {
+      if (!isConnected) {
+        console.error('Not connected to Supabase');
+        return;
+      }
+
       try {
         console.log('Loading messages for:', navigationTitle);
 
-        // First ensure the toy exists
+        // First ensure the room exists
         const { error: roomError } = await supabase
           .from('rooms')
           .upsert({ id: navigationTitle })
@@ -383,7 +470,8 @@ const MainPage: React.FC = () => {
           .from('messages')
           .select('*')
           .eq('room_id', navigationTitle)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: false })
+          .limit(MESSAGES_PER_PAGE);
 
         if (messagesError) {
           console.error('Error fetching messages:', messagesError);
@@ -393,12 +481,21 @@ const MainPage: React.FC = () => {
         console.log('Fetched messages:', existingMessages);
         
         if (existingMessages) {
-          setMessages(existingMessages);
-          // Force scroll to bottom after messages are loaded
+          const reversedMessages = existingMessages.reverse();
+          setMessages(reversedMessages);
+          setHasMoreMessages(existingMessages.length === MESSAGES_PER_PAGE);
+          if (existingMessages.length > 0) {
+            setOldestLoadedTimestamp(existingMessages[0].created_at);
+          }
+          
+          if (!getCurrentUserNumber()) {
+            const nextNumber = getNextUserNumber(reversedMessages);
+            setUserNumberForRoom(navigationTitle, nextNumber);
+          }
           setTimeout(() => scrollToBottom(true), 100);
         }
       } catch (error) {
-        console.error('Error loading messages:', error);
+        console.error('Error in loadToyMessages:', error);
       }
     };
 
@@ -432,16 +529,34 @@ const MainPage: React.FC = () => {
     return () => {
       channel.unsubscribe();
     };
-  }, [navigationTitle]);
+  }, [navigationTitle, isConnected]);
+
+  const getCurrentUserNumber = () => {
+    const roomMapping = roomUserNumbers.find(r => r.room_id === navigationTitle);
+    return roomMapping?.user_number || 0;
+  };
+
+  const setUserNumberForRoom = (room_id: string, number: number) => {
+    setRoomUserNumbers(prev => {
+      const existing = prev.find(r => r.room_id === room_id);
+      if (existing) {
+        return prev.map(r => r.room_id === room_id ? { ...r, user_number: number } : r);
+      }
+      return [...prev, { room_id, user_number: number }];
+    });
+  };
 
   const handleSubmitMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
+    const currentUserNumber = getCurrentUserNumber();
+    
     const tempMessage: Message = {
       id: crypto.randomUUID(),
       content: newMessage,
       sender_id: anonymousId,
+      user_number: currentUserNumber,
       created_at: new Date().toISOString(),
       room_id: navigationTitle,
       local: true
@@ -453,7 +568,7 @@ const MainPage: React.FC = () => {
     // Reset textarea height
     const textarea = document.querySelector('textarea');
     if (textarea) {
-      textarea.style.height = 'auto';  // Reset to default height
+      textarea.style.height = 'auto';
     }
 
     const { data, error } = await supabase
@@ -461,6 +576,7 @@ const MainPage: React.FC = () => {
       .insert({
         content: newMessage,
         sender_id: anonymousId,
+        user_number: currentUserNumber,
         room_id: navigationTitle
       })
       .select();
@@ -521,6 +637,47 @@ const MainPage: React.FC = () => {
     setNewMessage(textarea.value);
   };
 
+  const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    
+    if (container.scrollTop <= SCROLL_THRESHOLD && !isLoadingMore && hasMoreMessages) {
+      setIsLoadingMore(true);
+      
+      try {
+        const { data: olderMessages, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('room_id', navigationTitle)
+          .lt('created_at', oldestLoadedTimestamp!)
+          .order('created_at', { ascending: false })
+          .limit(MESSAGES_PER_PAGE);
+
+        if (error) throw error;
+
+        if (olderMessages && olderMessages.length > 0) {
+          // Preserve scroll position
+          const scrollHeight = container.scrollHeight;
+          
+          setMessages(prev => [...olderMessages.reverse(), ...prev]);
+          setOldestLoadedTimestamp(olderMessages[olderMessages.length - 1].created_at);
+          
+          // Restore scroll position after new messages are added
+          requestAnimationFrame(() => {
+            container.scrollTop = container.scrollHeight - scrollHeight;
+          });
+
+          setHasMoreMessages(olderMessages.length === MESSAGES_PER_PAGE);
+        } else {
+          setHasMoreMessages(false);
+        }
+      } catch (error) {
+        console.error('Error loading more messages:', error);
+      } finally {
+        setIsLoadingMore(false);
+      }
+    }
+  };
+
   return (
     <PageContainer $bgColor={backgroundColor}>
       <Header>
@@ -552,13 +709,29 @@ const MainPage: React.FC = () => {
         ) : (
           <ChatContainer>
             <ChatTitle>{navigationTitle}</ChatTitle>
-            <MessageContainer ref={messageContainerRef}>
+            <MessageContainer 
+              ref={messageContainerRef}
+              onScroll={handleScroll}
+            >
+              {isLoadingMore && (
+                <LoadingIndicator>Loading more messages...</LoadingIndicator>
+              )}
               {messages.length > 0 ? (
                 messages.map((message, index) => (
                   <MessageBubble 
-                    key={index} 
+                    key={message.id}
                     $isUser={message.sender_id === anonymousId}
                   >
+                    <MessageHeader>
+                      <ShapeName>
+                        {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                      </ShapeName>
+                      {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                        <LoopCount>
+                          {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                        </LoopCount>
+                      )}
+                    </MessageHeader>
                     {message.content}
                   </MessageBubble>
                 ))
