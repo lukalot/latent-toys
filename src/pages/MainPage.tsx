@@ -204,7 +204,7 @@ const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 0 120px rgba(56, 132, 86, 0.25);
+  box-shadow: 0 0 30px rgba(56, 132, 86, 0.2);
 `;
 
 const ChatTitle = styled.h1`
@@ -222,8 +222,9 @@ const MessageContainer = styled.div`
   gap: 1rem;
   overflow-y: auto;
   flex: 1;
-  padding: 1rem;
-  padding-right: 0.5rem;
+  padding: 0rem;
+  padding-bottom: 1rem;
+  padding-top: 1rem;
   scrollbar-width: none;
   -ms-overflow-style: none;
   /* Custom scrollbar styling */
