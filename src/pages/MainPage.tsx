@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import halftonePattern from '../assets/untitled.png';
+import logoSvg from '../assets/noun-spinning-top-753468.svg';
 
 interface Message {
   content: string;
@@ -71,13 +72,28 @@ const Header = styled.header`
   position: relative;
 `;
 
-const Logo = styled.div`
+const LogoContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 1.5rem;
   font-weight: 400;
   font-family: 'DM Mono', monospace;
   color: #fff;
   text-shadow: 0 0 28px rgba(72,174,137, 0.2);
   background-color: #000;
+`;
+
+const LogoIcon = styled.img`
+  height: 1.75rem;
+  width: 1.75rem;
+  filter: invert(1);
+`;
+
+const LogoText = styled.span`
+  @media (max-width: 760px) {
+    display: none;
+  }
 `;
 
 const NavigationContainer = styled.div`
@@ -295,7 +311,10 @@ const MainPage: React.FC = () => {
   return (
     <PageContainer bgColor={backgroundColor}>
       <Header>
-        <Logo>latent.toys</Logo>
+        <LogoContainer>
+          <LogoIcon src={logoSvg} alt="Latent Toys Logo" />
+          <LogoText>latent.toys</LogoText>
+        </LogoContainer>
         <NavigationContainer>
           <NavigationPrefix>t/</NavigationPrefix>
           <NavigationField
