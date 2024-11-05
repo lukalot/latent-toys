@@ -7,22 +7,12 @@ const GlobalStyles = createGlobalStyle`
     box-sizing: border-box;
   }
 
-  html {
+  html, body {
     height: 100%;
-    position: fixed;
-    width: 100%;
     overflow: hidden;
-    -webkit-overflow-scrolling: touch;
   }
 
   body {
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    position: fixed;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: none;
-    touch-action: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
       Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   }

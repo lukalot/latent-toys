@@ -348,6 +348,11 @@ const MessageBubble = styled.div<{ $isUser?: boolean }>`
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
   background-color: ${props => props.$isUser ? '#2d2d2d' : '#fff'};
   color: ${props => props.$isUser ? '#fff' : '#000'};
+
+  @media (max-width: 700px) {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.85rem;
+  }
 `;
 
 const InputContainer = styled.form`
@@ -379,8 +384,8 @@ const MessageInput = styled.textarea`
   height: 100%;
   
   @media (max-width: 700px) {
-    padding: 0.8rem;
-    font-size: 16px; // Prevent iOS zoom
+    padding: 0.7rem;
+    font-size: 0.85rem;
     line-height: 1.4;
   }
   
