@@ -729,6 +729,10 @@ const MainPage: React.FC = () => {
   const [typingUsers, setTypingUsers] = useState<AnimatedTypingState[]>([]);
   const typingChannelRef = useRef<any>(null);
   const viewerChannelRef = useRef<any>(null);
+  const [localGhostMessage, setLocalGhostMessage] = useState<{
+    content: string;
+    lastUpdated: number;
+  } | null>(null);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -962,16 +966,24 @@ const MainPage: React.FC = () => {
     textarea.style.height = `${textarea.scrollHeight}px`;
     setNewMessage(textarea.value);
     
+    const content = textarea.value.trim();
+    if (content) {
+      setLocalGhostMessage({
+        content,
+        lastUpdated: Date.now()
+      });
+    } else {
+      setLocalGhostMessage(null);
+    }
+    
     if (typingChannelRef.current) {
-      // Only broadcast if there's actual content
-      const content = textarea.value.trim();
       typingChannelRef.current.send({
         type: 'broadcast',
         event: 'typing',
         payload: {
           user: anonymousId,
           userNumber: getCurrentUserNumber(),
-          content: content || null // Send null if empty
+          content: content || null
         }
       });
     }
@@ -1195,6 +1207,14 @@ const MainPage: React.FC = () => {
       setTypingUsers(current => 
         current.filter(user => now - user.lastUpdated < 5000)
       );
+      
+      // Also clean up local ghost message if it's old
+      setLocalGhostMessage(current => {
+        if (current && now - current.lastUpdated >= 5000) {
+          return null;
+        }
+        return current;
+      });
     }, 1000); // Check every second
 
     channel
@@ -1291,30 +1311,64 @@ const MainPage: React.FC = () => {
                 <LoadingIndicator>Loading more messages...</LoadingIndicator>
               )}
               {messages.length > 0 ? (
-                messages.map((message) => (
-                  message.type === 'join' ? (
-                    <JoinMessage key={message.id}>
-                      {message.content}
-                    </JoinMessage>
-                  ) : (
-                    <MessageBubble 
-                      key={message.id}
-                      $isUser={message.sender_id === anonymousId}
-                    >
+                <>
+                  {messages.map((message) => (
+                    message.type === 'join' ? (
+                      <JoinMessage key={message.id}>
+                        {message.content}
+                      </JoinMessage>
+                    ) : (
+                      <MessageBubble 
+                        key={message.id}
+                        $isUser={message.sender_id === anonymousId}
+                      >
+                        <MessageHeader>
+                          <ShapeName>
+                            {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                          </ShapeName>
+                          {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                            <LoopCount>
+                              {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                            </LoopCount>
+                          )}
+                        </MessageHeader>
+                        {message.content}
+                      </MessageBubble>
+                    )
+                  ))}
+                  
+                  {typingUsers.map(user => (
+                    <GhostMessageBubble key={user.user} $isUser={false}>
                       <MessageHeader>
                         <ShapeName>
-                          {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                          {shapeNames[(user.userNumber - 1) % shapeNames.length]}
                         </ShapeName>
-                        {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                        {Math.floor((user.userNumber - 1) / shapeNames.length) > 0 && (
                           <LoopCount>
-                            {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                            {Math.floor((user.userNumber - 1) / shapeNames.length) + 1}
                           </LoopCount>
                         )}
                       </MessageHeader>
-                      {message.content}
-                    </MessageBubble>
-                  )
-                ))
+                      {user.content}
+                    </GhostMessageBubble>
+                  ))}
+                  
+                  {localGhostMessage && (
+                    <GhostMessageBubble $isUser={true}>
+                      <MessageHeader>
+                        <ShapeName>
+                          {shapeNames[(getCurrentUserNumber() - 1) % shapeNames.length]}
+                        </ShapeName>
+                        {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) > 0 && (
+                          <LoopCount>
+                            {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) + 1}
+                          </LoopCount>
+                        )}
+                      </MessageHeader>
+                      {localGhostMessage.content}
+                    </GhostMessageBubble>
+                  )}
+                </>
               ) : (
                 <EmptyStateContainer>
                   <EmptyStateImage 
@@ -1326,38 +1380,6 @@ const MainPage: React.FC = () => {
                     send a message
                   </EmptyStateText>
                 </EmptyStateContainer>
-              )}
-              
-              {typingUsers.map(user => (
-                <GhostMessageBubble key={user.user} $isUser={false}>
-                  <MessageHeader>
-                    <ShapeName>
-                      {shapeNames[(user.userNumber - 1) % shapeNames.length]}
-                    </ShapeName>
-                    {Math.floor((user.userNumber - 1) / shapeNames.length) > 0 && (
-                      <LoopCount>
-                        {Math.floor((user.userNumber - 1) / shapeNames.length) + 1}
-                      </LoopCount>
-                    )}
-                  </MessageHeader>
-                  {user.content}
-                </GhostMessageBubble>
-              ))}
-              
-              {newMessage.trim() && (
-                <GhostMessageBubble $isUser={true}>
-                  <MessageHeader>
-                    <ShapeName>
-                      {shapeNames[(getCurrentUserNumber() - 1) % shapeNames.length]}
-                    </ShapeName>
-                    {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) > 0 && (
-                      <LoopCount>
-                        {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) + 1}
-                      </LoopCount>
-                    )}
-                  </MessageHeader>
-                  {newMessage}
-                </GhostMessageBubble>
               )}
             </MessageContainer>
             <InputContainer onSubmit={handleSubmitMessage}>
