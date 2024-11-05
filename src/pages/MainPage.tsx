@@ -6,6 +6,7 @@ import { supabase, checkSupabaseConnection } from '../lib/supabaseClient';
 import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
 import { useMessageSound } from '../hooks/useMessageSound';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 
 interface Message {
   id: string;
@@ -933,29 +934,42 @@ const createRoomLinkPlugin = () => {
   };
 };
 
-// Update the RoomLink component with proper types
-const RoomLink = React.memo<{
-  href: string;
+// Create a context for the navigation function
+const NavigationContext = React.createContext<((roomName: string) => void) | null>(null);
+
+// Create a provider component
+const NavigationProvider: React.FC<{
   children: React.ReactNode;
   onNavigate: (roomName: string) => void;
-}>(({ href, children, onNavigate }) => {
+}> = ({ children, onNavigate }) => {
+  return (
+    <NavigationContext.Provider value={onNavigate}>
+      {children}
+    </NavigationContext.Provider>
+  );
+};
+
+// Update the RoomLink component to use context
+const RoomLink: Components['a'] = ({ href, children, ...props }) => {
+  const navigate = React.useContext(NavigationContext);
   const isRoomLink = href?.startsWith('/t/');
   
-  const handleClick = useCallback((e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    if (isRoomLink && href) {
+    if (isRoomLink && href && navigate) {
       const roomName = href.slice(3); // Remove '/t/'
-      onNavigate(sanitizeRoomName(roomName));
+      navigate(sanitizeRoomName(roomName));
       window.history.pushState({}, '', href);
     } else {
       window.open(href, '_blank', 'noopener,noreferrer');
     }
-  }, [href, isRoomLink, onNavigate]);
+  };
   
   return (
     <a 
       href={href}
       onClick={handleClick}
+      {...props}
       style={{
         cursor: 'pointer',
         textDecoration: isRoomLink ? 'none' : 'underline',
@@ -970,9 +984,9 @@ const RoomLink = React.memo<{
       {children}
     </a>
   );
-});
+};
 
-// Update the MessageBubbleWithWidth component to be more efficient
+// Update MessageBubbleWithWidth to use NavigationProvider
 const MessageBubbleWithWidth = React.memo<{
   message: Message;
   isUser: boolean;
@@ -988,32 +1002,6 @@ const MessageBubbleWithWidth = React.memo<{
       bubbleRef.current.style.setProperty('--rounded-width', `${roundedWidth}px`);
     }
   }, [message.content, message.style]);
-
-  // Memoize the markdown plugins with proper typing
-  const remarkPlugins = useMemo(() => [
-    () => (tree: any) => {
-      tree.children.forEach((node: any) => {
-        if (node.type === 'heading') {
-          node.type = 'paragraph';
-        }
-      });
-      return tree;
-    },
-    createRoomLinkPlugin()
-  ], []);
-
-  // Memoize the markdown components with proper typing
-  const markdownComponents = useMemo(() => ({
-    a: ({ href, children, ...props }: { href?: string; children: React.ReactNode } & React.ComponentProps<'a'>) => (
-      <RoomLink 
-        href={href || ''} 
-        onNavigate={onNavigate}
-        {...props}
-      >
-        {children}
-      </RoomLink>
-    )
-  }), [onNavigate]);
 
   return (
     <GroupedMessageBubble
@@ -1033,22 +1021,28 @@ const MessageBubbleWithWidth = React.memo<{
         )}
       </MessageHeader>
       <MarkdownContent>
-        <ReactMarkdown 
-          remarkPlugins={remarkPlugins}
-          components={markdownComponents}
-        >
-          {message.content}
-        </ReactMarkdown>
+        <NavigationProvider onNavigate={onNavigate}>
+          <ReactMarkdown 
+            remarkPlugins={[
+              () => (tree: any) => {
+                tree.children.forEach((node: any) => {
+                  if (node.type === 'heading') {
+                    node.type = 'paragraph';
+                  }
+                });
+                return tree;
+              },
+              createRoomLinkPlugin()
+            ]}
+            components={{
+              a: RoomLink
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        </NavigationProvider>
       </MarkdownContent>
     </GroupedMessageBubble>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison function for memo
-  return (
-    prevProps.message.id === nextProps.message.id &&
-    prevProps.message.content === nextProps.message.content &&
-    prevProps.isUser === nextProps.isUser &&
-    prevProps.isFirst === nextProps.isFirst
   );
 });
 
@@ -1919,31 +1913,26 @@ const MainPage: React.FC = () => {
                             )}
                           </MessageHeader>
                           <MarkdownContent>
-                            <ReactMarkdown 
-                              remarkPlugins={[
-                                [() => (tree: any) => {
-                                  tree.children.forEach((node: any) => {
-                                    if (node.type === 'heading') {
-                                      node.type = 'paragraph';
-                                    }
-                                  });
-                                }],
-                                createRoomLinkPlugin()
-                              ]}
-                              components={{
-                                a: ({ href, children, ...props }: { href?: string; children: React.ReactNode } & React.ComponentProps<'a'>) => (
-                                  <RoomLink 
-                                    href={href || ''} 
-                                    onNavigate={setNavigationTitle}
-                                    {...props}
-                                  >
-                                    {children}
-                                  </RoomLink>
-                                )
-                              }}
-                            >
-                              {ghost.content}
-                            </ReactMarkdown>
+                            <NavigationProvider onNavigate={setNavigationTitle}>
+                              <ReactMarkdown 
+                                remarkPlugins={[
+                                  () => (tree: any) => {
+                                    tree.children.forEach((node: any) => {
+                                      if (node.type === 'heading') {
+                                        node.type = 'paragraph';
+                                      }
+                                    });
+                                    return tree;
+                                  },
+                                  createRoomLinkPlugin()
+                                ]}
+                                components={{
+                                  a: RoomLink
+                                }}
+                              >
+                                {ghost.content}
+                              </ReactMarkdown>
+                            </NavigationProvider>
                           </MarkdownContent>
                         </GhostMessageBubble>
                       ))}
