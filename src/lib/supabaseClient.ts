@@ -20,4 +20,18 @@ export const checkSupabaseConnection = async () => {
     console.error('Supabase connection failed:', error);
     return false;
   }
+};
+
+// After creating the supabase client
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    // Generate new anonymous ID when signed out
+    const anonymousId = crypto.randomUUID();
+    supabase.rpc('set_claim', { claim: 'app.current_user', value: anonymousId });
+  }
+});
+
+// Before making any requests that need the sender_id
+export const setCurrentUser = async (anonymousId: string) => {
+  await supabase.rpc('set_claim', { claim: 'app.current_user', value: anonymousId });
 }; 

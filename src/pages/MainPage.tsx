@@ -22,6 +22,20 @@ interface RoomUserNumber {
   user_number: number;
 }
 
+interface TypingState {
+  user: string;
+  userNumber: number;
+  content: string;
+}
+
+// Add this interface for the animated typing state
+interface AnimatedTypingState {
+  user: string;
+  userNumber: number;
+  content: string;
+  targetContent: string;
+}
+
 const shapeNames = [
   // 1D
   "POINT",
@@ -628,19 +642,14 @@ const MAX_MESSAGE_LENGTH = 2000;
 const MAX_ROOM_NAME_LENGTH = 100;
 
 const sanitizeMessage = (content: string): string => {
-  // Trim whitespace
-  let sanitized = content.trim();
+  // Trim whitespace and limit length
+  let sanitized = content.trim().slice(0, MAX_MESSAGE_LENGTH);
   
-  // Limit length
-  sanitized = sanitized.slice(0, MAX_MESSAGE_LENGTH);
-  
-  // Encode HTML special characters
+  // Only encode < and > to prevent HTML/script injection
+  // but preserve other characters
   sanitized = sanitized
-    .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/>/g, '&gt;');
     
   return sanitized;
 };
@@ -656,9 +665,41 @@ const sanitizeRoomName = (name: string): string => {
   return sanitized.slice(0, MAX_ROOM_NAME_LENGTH);
 };
 
+// Update the GhostMessageBubble styling
+const GhostMessageBubble = styled(MessageBubble)`
+  background-color: transparent;
+  opacity: 1;
+  border: none;
+  position: relative;
+  color: #666;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 1.5px solid ${props => props.$isUser ? '#ffffff' : '#ffffff'};
+    pointer-events: none;
+    animation: borderPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes borderPulse {
+    0%, 100% { opacity: 0.1; }
+    50% { opacity: 0.3; }
+  }
+`;
+
+// Add this constant near the top with other constants
+const TYPING_TIMEOUT = 3000; // 3 seconds
+
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
     const path = window.location.pathname;
+    if (path === '/' || path === '') {
+      return 'main';
+    }
     if (path.startsWith('/t/')) {
       const room = path.slice(3); // Remove '/t/'
       const sanitized = sanitizeRoomName(room);
@@ -685,6 +726,9 @@ const MainPage: React.FC = () => {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [hasEditedRoom, setHasEditedRoom] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<AnimatedTypingState[]>([]);
+  const typingChannelRef = useRef<any>(null);
+  const viewerChannelRef = useRef<any>(null);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -737,10 +781,9 @@ const MainPage: React.FC = () => {
             setOldestLoadedTimestamp(existingMessages[0].created_at);
           }
           
-          if (!getCurrentUserNumber()) {
-            const nextNumber = getNextUserNumber(reversedMessages);
-            setUserNumberForRoom(navigationTitle, nextNumber);
-          }
+          const nextNumber = getNextUserNumber(reversedMessages);
+          setUserNumberForRoom(navigationTitle, nextNumber);
+          
           setTimeout(() => scrollToBottom(true), 100);
         }
       } catch (error) {
@@ -763,11 +806,37 @@ const MainPage: React.FC = () => {
           filter: `room_id=eq.${navigationTitle}`,
         },
         (payload) => {
-          console.log('Received new message:', payload);
-          // Play sound if message is from another user
+          // Add extensive debug logging
+          console.log('=== MESSAGE RECEIVED ===', {
+            messageRoom: payload.new.room_id,
+            currentRoom: navigationTitle,
+            message: payload.new.content,
+            sender: payload.new.sender_id,
+            filter: `room_id=eq.${navigationTitle}`,
+            shouldShow: payload.new.room_id === navigationTitle
+          });
+
+          // Strict room check
+          if (payload.new.room_id !== navigationTitle) {
+            console.log('Ignoring message - wrong room:', {
+              messageRoom: payload.new.room_id,
+              currentRoom: navigationTitle
+            });
+            return;
+          }
+
+          console.log('Processing message for room:', navigationTitle);
+          
           if (payload.new.sender_id !== anonymousId) {
             playMessageSound();
           }
+          
+          setTypingUsers(current => 
+            current.filter(user => 
+              !(user.user === payload.new.sender_id && user.content === payload.new.content)
+            )
+          );
+          
           setMessages(current => {
             const filtered = current.filter(msg => 
               !(msg.local && msg.content === payload.new.content)
@@ -776,53 +845,30 @@ const MainPage: React.FC = () => {
           });
         }
       )
-      .subscribe();
-
-    // Add presence channel
-    const presenceChannel = supabase.channel(`presence:${navigationTitle}`, {
-      config: {
-        presence: {
-          key: anonymousId,
-        },
-      },
-    });
-
-    presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceChannel.presenceState();
-        const newCount = Object.keys(state).length;
-
-        if (isInitialViewerCount) {
-          setViewerCount(newCount);
-          setIsInitialViewerCount(false);
-        } else {
-          setTimeout(() => {
-            setViewerCount(newCount);
-          }, 1000);
-        }
-      })
-      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
-        console.log('Join:', key, newPresences);
-      })
-      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-        console.log('Leave:', key, leftPresences);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ user: anonymousId });
-        }
+      .subscribe((status) => {
+        console.log(`Channel ${navigationTitle} status:`, status);
       });
 
     // Cleanup function
     return () => {
-      channel.unsubscribe();
-      presenceChannel.unsubscribe();
+      console.log('=== CLEANING UP CHANNELS ===');
+      if (typingChannelRef.current) {
+        typingChannelRef.current.unsubscribe();
+        typingChannelRef.current = null;
+      }
+      setTypingUsers([]);
     };
   }, [navigationTitle, isConnected, anonymousId]); // Simplified dependencies array
 
   const getCurrentUserNumber = () => {
     const roomMapping = roomUserNumbers.find(r => r.room_id === navigationTitle);
-    return roomMapping?.user_number || 0;
+    if (!roomMapping) {
+      // If no number exists yet, calculate from existing messages
+      const nextNumber = getNextUserNumber(messages);
+      setUserNumberForRoom(navigationTitle, nextNumber);
+      return nextNumber;
+    }
+    return roomMapping.user_number;
   };
 
   const setUserNumberForRoom = (room_id: string, number: number) => {
@@ -898,7 +944,7 @@ const MainPage: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, typingUsers, newMessage]); // Add newMessage to dependencies
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -917,7 +963,20 @@ const MainPage: React.FC = () => {
     textarea.style.height = `${textarea.scrollHeight}px`;
     setNewMessage(textarea.value);
     
-    // Call handleFirstType when the user starts typing
+    if (typingChannelRef.current) {
+      // Only broadcast if there's actual content
+      const content = textarea.value.trim();
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          user: anonymousId,
+          userNumber: getCurrentUserNumber(),
+          content: content || null // Send null if empty
+        }
+      });
+    }
+    
     if (textarea.value.length === 1) {
       handleFirstType();
     }
@@ -969,9 +1028,13 @@ const MainPage: React.FC = () => {
       setHasTyped(true);
       
       const currentUserNumber = getCurrentUserNumber();
+      if (currentUserNumber === 0) {
+        console.error('Invalid user number');
+        return;
+      }
+
       const shapeName = shapeNames[(currentUserNumber - 1) % shapeNames.length];
       
-      // Create and add local join message first
       const localJoinMessage: Message = {
         id: crypto.randomUUID(),
         content: `${shapeName} joined the room.`,
@@ -983,10 +1046,8 @@ const MainPage: React.FC = () => {
         local: true
       };
 
-      // Add local message immediately
       setMessages(prev => [...prev, localJoinMessage]);
 
-      // Send to server
       const { error } = await supabase
         .from('messages')
         .insert({
@@ -999,7 +1060,6 @@ const MainPage: React.FC = () => {
 
       if (error) {
         console.error('Error sending join message:', error);
-        // Remove local message if server insert failed
         setMessages(prev => prev.filter(msg => msg.id !== localJoinMessage.id));
       }
     }
@@ -1007,8 +1067,8 @@ const MainPage: React.FC = () => {
 
   // Add effect to update URL when room changes
   useEffect(() => {
-    if (hasEditedRoom || window.location.pathname !== '/') {
-      const newPath = `/t/${navigationTitle}`;
+    if (hasEditedRoom) {
+      const newPath = navigationTitle === 'main' ? '/' : `/t/${navigationTitle}`;
       if (window.location.pathname !== newPath) {
         window.history.pushState({}, '', newPath);
       }
@@ -1025,6 +1085,99 @@ const MainPage: React.FC = () => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Keep only the single channel setup effect that has both typing and viewer channels
+  useEffect(() => {
+    if (!isConnected) return;
+    
+    console.log('=== CHANNEL SETUP ===');
+    console.log('Room:', navigationTitle);
+    
+    // Clear typing users
+    setTypingUsers([]);
+    
+    // Set up broadcast channel for typing
+    const typingChannel = supabase.channel(`room-${navigationTitle}-typing`, {
+      config: {
+        broadcast: {
+          self: false,
+          ack: false
+        }
+      }
+    });
+
+    // Set up viewer count channel
+    const viewerChannel = supabase.channel(`presence:${navigationTitle}`, {
+      config: {
+        presence: {
+          key: anonymousId,
+        },
+      }
+    });
+
+    typingChannelRef.current = typingChannel;
+    viewerChannelRef.current = viewerChannel;
+
+    // Set up viewer count tracking
+    viewerChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = viewerChannel.presenceState();
+        const newCount = Object.keys(state).length;
+        
+        if (isInitialViewerCount) {
+          setViewerCount(newCount);
+          setIsInitialViewerCount(false);
+        } else {
+          setTimeout(() => {
+            setViewerCount(newCount);
+          }, 1000);
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await viewerChannel.track({ user: anonymousId });
+        }
+      });
+
+    // Set up typing broadcast handler
+    typingChannel
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!payload?.user || !payload?.userNumber) return;
+        
+        setTypingUsers(current => {
+          const validUsers = current.filter(u => 
+            u.user && 
+            u.userNumber > 0 && 
+            typeof u.content === 'string' &&
+            u.user !== payload.user
+          );
+
+          if (payload.content?.trim()) {
+            return [...validUsers, {
+              user: payload.user,
+              userNumber: payload.userNumber,
+              content: payload.content,
+              targetContent: payload.content
+            }];
+          }
+          return validUsers;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      console.log('=== CLEANING UP CHANNELS ===');
+      if (viewerChannelRef.current) {
+        viewerChannelRef.current.unsubscribe();
+        viewerChannelRef.current = null;
+      }
+      if (typingChannelRef.current) {
+        typingChannelRef.current.unsubscribe();
+        typingChannelRef.current = null;
+      }
+      setTypingUsers([]);
+    };
+  }, [navigationTitle, isConnected, anonymousId]);
 
   return (
     <PageContainer $bgColor={backgroundColor}>
@@ -1105,6 +1258,38 @@ const MainPage: React.FC = () => {
                     send a message
                   </EmptyStateText>
                 </EmptyStateContainer>
+              )}
+              
+              {typingUsers.map(user => (
+                <GhostMessageBubble key={user.user} $isUser={false}>
+                  <MessageHeader>
+                    <ShapeName>
+                      {shapeNames[(user.userNumber - 1) % shapeNames.length]}
+                    </ShapeName>
+                    {Math.floor((user.userNumber - 1) / shapeNames.length) > 0 && (
+                      <LoopCount>
+                        {Math.floor((user.userNumber - 1) / shapeNames.length) + 1}
+                      </LoopCount>
+                    )}
+                  </MessageHeader>
+                  {user.content}
+                </GhostMessageBubble>
+              ))}
+              
+              {newMessage.trim() && (
+                <GhostMessageBubble $isUser={true}>
+                  <MessageHeader>
+                    <ShapeName>
+                      {shapeNames[(getCurrentUserNumber() - 1) % shapeNames.length]}
+                    </ShapeName>
+                    {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) > 0 && (
+                      <LoopCount>
+                        {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) + 1}
+                      </LoopCount>
+                    )}
+                  </MessageHeader>
+                  {newMessage}
+                </GhostMessageBubble>
               )}
             </MessageContainer>
             <InputContainer onSubmit={handleSubmitMessage}>
