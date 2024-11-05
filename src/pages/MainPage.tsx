@@ -446,6 +446,170 @@ const JoinMessage = styled.div`
   font-size: 0.9rem;
 `;
 
+const HelpButton = styled.button`
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 2rem;
+  height: 2rem;
+  background-color: #000;
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 1rem;
+  cursor: pointer;
+  z-index: 11;
+
+  &:hover {
+    background-color: #ffffff;
+    color: #000;
+  }
+`;
+
+const MenuButton = styled.button<{ $isOpen: boolean }>`
+  position: fixed;
+  bottom: 2rem;
+  left: 2rem;
+  width: 2rem;
+  height: 2rem;
+  background-color: #000;
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 1rem;
+  cursor: pointer;
+  z-index: 11;
+  font-weight: 500;
+  transition: transform 0.2s ease;
+
+  &:hover {
+    background-color: #ffffff;
+    color: #000;
+  }
+
+  ${props => props.$isOpen && `
+    transform: rotate(45deg);
+  `}
+`;
+
+const HelpBox = styled.div<{ $isOpen: boolean }>`
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 20rem;
+  height: 30rem;
+  background-color: #000;
+  border-left: 1.5px solid #fff;
+  outline: 1.5px dashed #fff;
+  outline-offset: -1.5px;
+  z-index: 10;
+  transition: transform 0.2s ease-out;
+  opacity: ${props => props.$isOpen ? 1 : 0};
+  transform-origin: bottom right;
+  transform: ${props => props.$isOpen ? 'scale(1)' : 'scale(0.2)'};
+  pointer-events: ${props => props.$isOpen ? 'auto' : 'none'};
+`;
+
+const MenuPanel = styled.div<{ $isOpen: boolean }>`
+  position: fixed;
+  bottom: 2rem;
+  left: 2rem;
+  width: 20rem;
+  height: 30rem;
+  background-color: #000;
+  border-right: 1.5px solid #fff;
+  outline: 1.5px dashed #fff;
+  outline-offset: -1.5px;
+  z-index: 10;
+  transition: transform 0.2s ease-out;
+  opacity: ${props => props.$isOpen ? 1 : 0};
+  transform-origin: bottom left;
+  transform: ${props => props.$isOpen ? 'scale(1)' : 'scale(0.2)'};
+  pointer-events: ${props => props.$isOpen ? 'auto' : 'none'};
+`;
+
+// Update PlusIcon to remove the rotation transform
+const PlusIcon = styled.svg`
+  width: 1rem;
+  height: 1rem;
+`;
+
+const HelpContent = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+`;
+
+const HelpTitle = styled.div`
+  color: #fff;
+  font-size: 1.1rem;
+  padding: 1.5rem;
+  padding-top: 1.2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #222;
+`;
+
+const HelpSections = styled.div`
+  padding: 1.5rem;
+  padding-top: 1.1rem;
+  color: #666;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  overflow-y: auto;
+  flex: 1;
+
+  /* Custom scrollbar styling */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
+`;
+
+const HelpSection = styled.div`
+  margin-bottom: 1.5rem;
+`;
+
+const MenuContent = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: #666;
+  font-family: 'DM Mono', monospace;
+  text-align: center;
+  line-height: 1.6;
+`;
+
+const MenuTitle = styled.div`
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+`;
+
+const MenuText = styled.div`
+  font-size: 0.9rem;
+  opacity: 0.7;
+`;
+
 const MainPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -462,6 +626,8 @@ const MainPage: React.FC = () => {
   const [isInitialViewerCount, setIsInitialViewerCount] = useState(true);
   const playMessageSound = useMessageSound();
   const [hasTyped, setHasTyped] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -800,7 +966,7 @@ const MainPage: React.FC = () => {
             type="text"
             value={navigationTitle}
             onChange={handleNavigationChange}
-            placeholder="Enter a toy..."
+            placeholder="Enter a room..."
           />
         </NavigationContainer>
         <AuthButtons>
@@ -813,7 +979,7 @@ const MainPage: React.FC = () => {
         {navigationTitle === '' ? (
           <PlaceholderContainer>
             <PlaceholderText>404</PlaceholderText>
-            <PlaceholderSubtext>enter a toy name above</PlaceholderSubtext>
+            <PlaceholderSubtext>enter a room name above</PlaceholderSubtext>
           </PlaceholderContainer>
         ) : (
           <ChatContainer>
@@ -880,6 +1046,49 @@ const MainPage: React.FC = () => {
           </ChatContainer>
         )}
       </MainContent>
+      <HelpBox $isOpen={isHelpOpen}>
+        <HelpContent>
+          <HelpTitle>About latent.toys</HelpTitle>
+          <HelpSections>
+            <HelpSection>
+              Welcome to latent.toys! This site is an infinite library of chat rooms, each with a unique theme.
+            </HelpSection>
+            
+            <HelpSection>
+              There's no formal room creation - just type any room in the navigation bar to instantly discover a new space. This enables organic community formation around interesting latent.toy rooms.
+            </HelpSection>
+
+            <HelpSection>
+              Each room assigns geometric shapes to users as they join (POINT, LINE, etc). Your shape persists for one hour after your last message, then becomes available for new users.
+            </HelpSection>
+          </HelpSections>
+        </HelpContent>
+      </HelpBox>
+      <HelpButton 
+        onClick={() => setIsHelpOpen(!isHelpOpen)}
+      >
+        ?
+      </HelpButton>
+      <MenuPanel $isOpen={isMenuOpen}>
+        <MenuContent>
+          <MenuTitle>work in progress</MenuTitle>
+          <MenuText>this menu will be populated eventually...</MenuText>
+        </MenuContent>
+      </MenuPanel>
+      <MenuButton 
+        $isOpen={isMenuOpen}
+        onClick={() => setIsMenuOpen(!isMenuOpen)}
+      >
+        <PlusIcon 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2.4"
+        >
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="12" y1="4" x2="12" y2="20" />
+        </PlusIcon>
+      </MenuButton>
     </PageContainer>
   );
 };
