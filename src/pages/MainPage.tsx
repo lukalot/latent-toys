@@ -817,18 +817,19 @@ const MessageBubbleWithWidth: React.FC<{
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (bubbleRef.current) {
+    if (bubbleRef.current && !message.style) {
       const width = bubbleRef.current.getBoundingClientRect().width;
       const roundedWidth = roundUpToNearestEm(width);
       bubbleRef.current.style.setProperty('--rounded-width', `${roundedWidth}px`);
     }
-  }, [message.content]); // Recalculate when content changes
+  }, [message.content, message.style]);
 
   return (
     <GroupedMessageBubble
       ref={bubbleRef}
       $isUser={isUser}
       $isFirst={isFirst}
+      style={message.style}
     >
       <MessageHeader>
         <ShapeName>
@@ -1338,22 +1339,58 @@ const MainPage: React.FC = () => {
       return;
     }
 
-    // Only play sound for non-join messages from other users
     if (payload.new.sender_id !== anonymousId && payload.new.type !== 'join' && !document.hasFocus()) {
       playMessageSound();
     }
     
-    // Remove typing indicator when message is received
     setTypingUsers(current => 
       current.filter(user => user.user !== payload.new.sender_id)
     );
+
+    // Pre-calculate width using a temporary div that includes the header
+    const measureDiv = document.createElement('div');
+    measureDiv.style.cssText = `
+      position: absolute;
+      visibility: hidden;
+      padding: 0.65rem 0.9rem;
+      max-width: 80%;
+      font-family: inherit;
+      font-size: inherit;
+    `;
     
-    // Update messages
+    // Create and append header content
+    const headerDiv = document.createElement('div');
+    headerDiv.style.cssText = `
+      font-size: 0.8rem;
+      font-family: 'DM Mono', monospace;
+      margin-bottom: 0.2rem;
+    `;
+    const shapeName = shapeNames[(payload.new.user_number - 1) % shapeNames.length];
+    const loopCount = Math.floor((payload.new.user_number - 1) / shapeNames.length) + 1;
+    headerDiv.textContent = loopCount > 1 ? `${shapeName} ${loopCount}` : shapeName;
+    
+    // Add both header and content
+    measureDiv.appendChild(headerDiv);
+    measureDiv.appendChild(document.createTextNode(payload.new.content));
+    document.body.appendChild(measureDiv);
+    
+    // Get the width and round up to nearest em
+    const naturalWidth = measureDiv.getBoundingClientRect().width;
+    const width = roundUpToNearestEm(Math.ceil(naturalWidth));
+    document.body.removeChild(measureDiv);
+    
+    // Add the server message with pre-calculated width
     setMessages(current => {
-      const filtered = current.filter(msg => 
-        !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
-      );
-      return [...filtered, payload.new as Message];
+      const serverMessage = {
+        ...payload.new,
+        style: { '--rounded-width': `${width}px` }
+      };
+      
+      return current
+        .filter(msg => 
+          !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
+        )
+        .concat(serverMessage);
     });
   };
 
