@@ -5,6 +5,7 @@ import logoSvg from '../assets/noun-spinning-top-753468.svg';
 import { supabase, checkSupabaseConnection } from '../lib/supabaseClient';
 import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
 import { useMessageSound } from '../hooks/useMessageSound';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -811,7 +812,62 @@ const GroupedMessageBubble = styled(MessageBubble)<{ $isFirst?: boolean }>`
   `}
 `;
 
-// Update the message rendering to include width calculation
+// Add styled components for markdown elements
+const MarkdownContent = styled.div`
+  /* Base text styles */
+  p {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  /* Links */
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+
+  /* Lists */
+  ul, ol {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+  }
+
+  li {
+    margin: 0.25em 0;
+  }
+
+  /* Emphasis */
+  em {
+    font-style: italic;
+  }
+
+  strong {
+    font-weight: bold;
+  }
+
+  /* Code */
+  code {
+    font-family: 'DM Mono', monospace;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+  }
+
+  /* Blockquotes */
+  blockquote {
+    margin: 0.5em 0;
+    padding-left: 1em;
+    border-left: 2px solid rgba(255, 255, 255, 0.2);
+    font-style: italic;
+  }
+`;
+
+// Update MessageBubbleWithWidth to disable headings
 const MessageBubbleWithWidth: React.FC<{
   message: Message;
   isUser: boolean;
@@ -844,7 +900,21 @@ const MessageBubbleWithWidth: React.FC<{
           </LoopCount>
         )}
       </MessageHeader>
-      {message.content}
+      <MarkdownContent>
+        <ReactMarkdown 
+          remarkPlugins={[
+            [() => (tree: any) => {
+              tree.children.forEach((node: any) => {
+                if (node.type === 'heading') {
+                  node.type = 'paragraph';
+                }
+              });
+            }]
+          ]}
+        >
+          {message.content}
+        </ReactMarkdown>
+      </MarkdownContent>
     </GroupedMessageBubble>
   );
 };
@@ -1714,7 +1784,21 @@ const MainPage: React.FC = () => {
                               </LoopCount>
                             )}
                           </MessageHeader>
-                          {ghost.content}
+                          <MarkdownContent>
+                            <ReactMarkdown 
+                              remarkPlugins={[
+                                [() => (tree: any) => {
+                                  tree.children.forEach((node: any) => {
+                                    if (node.type === 'heading') {
+                                      node.type = 'paragraph';
+                                    }
+                                  });
+                                }]
+                              ]}
+                            >
+                              {ghost.content}
+                            </ReactMarkdown>
+                          </MarkdownContent>
                         </GhostMessageBubble>
                       ))}
                   </>
