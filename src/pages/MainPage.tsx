@@ -1240,7 +1240,7 @@ const MainPage: React.FC = () => {
           }, 1000);
         }
       })
-      .subscribe(async (status) => {
+      .subscribe(async (status: 'SUBSCRIBED' | 'CLOSED' | 'TIMED_OUT' | 'CHANNEL_ERROR') => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ user: anonymousId });
         }
