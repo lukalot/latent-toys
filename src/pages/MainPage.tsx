@@ -553,6 +553,20 @@ const HelpTitle = styled.div`
   padding-top: 1.2rem;
   padding-bottom: 1rem;
   border-bottom: 2px solid #222;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const AuthorLink = styled.a`
+  color: #666;
+  font-size: 0.8rem;
+  text-decoration: none;
+  font-family: 'DM Mono', monospace;
+  
+  &:hover {
+    color: #fff;
+  }
 `;
 
 const HelpSections = styled.div`
@@ -610,13 +624,36 @@ const MenuText = styled.div`
   opacity: 0.7;
 `;
 
+const MAX_MESSAGE_LENGTH = 2000;
+const MAX_ROOM_NAME_LENGTH = 100;
+
+const sanitizeMessage = (content: string): string => {
+  // Trim whitespace
+  let sanitized = content.trim();
+  
+  // Limit length
+  sanitized = sanitized.slice(0, MAX_MESSAGE_LENGTH);
+  
+  // Encode HTML special characters
+  sanitized = sanitized
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+    
+  return sanitized;
+};
+
 const sanitizeRoomName = (name: string): string => {
-  return name
+  const sanitized = name
     .replace(/\s/g, '_')
     .replace(/\//g, '÷')
     .replace(/\*/g, '×')
     .toLowerCase()
     .replace(/[^a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]/g, '');
+  
+  return sanitized.slice(0, MAX_ROOM_NAME_LENGTH);
 };
 
 const MainPage: React.FC = () => {
@@ -800,13 +837,16 @@ const MainPage: React.FC = () => {
 
   const handleSubmitMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    
+    // Sanitize and validate message
+    const sanitizedMessage = sanitizeMessage(newMessage);
+    if (!sanitizedMessage || sanitizedMessage.length > MAX_MESSAGE_LENGTH) return;
 
     const currentUserNumber = getCurrentUserNumber();
     
     const tempMessage: Message = {
       id: crypto.randomUUID(),
-      content: newMessage,
+      content: sanitizedMessage,
       sender_id: anonymousId,
       user_number: currentUserNumber,
       created_at: new Date().toISOString(),
@@ -826,7 +866,7 @@ const MainPage: React.FC = () => {
     const { data, error } = await supabase
       .from('messages')
       .insert({
-        content: newMessage,
+        content: sanitizedMessage,
         sender_id: anonymousId,
         user_number: currentUserNumber,
         room_id: navigationTitle
@@ -1061,7 +1101,7 @@ const MainPage: React.FC = () => {
                     alt="Rocking horse animation"
                   />
                   <EmptyStateText>
-                    you found an undiscovered toy<br />
+                    you found a latent.toy<br />
                     send a message
                   </EmptyStateText>
                 </EmptyStateContainer>
@@ -1081,7 +1121,16 @@ const MainPage: React.FC = () => {
       </MainContent>
       <HelpBox $isOpen={isHelpOpen}>
         <HelpContent>
-          <HelpTitle>About latent.toys</HelpTitle>
+          <HelpTitle>
+            About latent.toys
+            <AuthorLink 
+              href="https://x.com/lukalot_" 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              lukalot
+            </AuthorLink>
+          </HelpTitle>
           <HelpSections>
             <HelpSection>
               Welcome to latent.toys! This site is an infinite library of chat rooms, each with a unique theme.
