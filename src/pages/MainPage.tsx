@@ -1158,7 +1158,8 @@ const MainPage: React.FC = () => {
       messageRoom: payload.new.room_id,
       currentRoom: navigationTitle,
       message: payload.new.content,
-      sender: payload.new.sender_id
+      sender: payload.new.sender_id,
+      type: payload.new.type
     });
 
     // Strict room check
@@ -1167,7 +1168,8 @@ const MainPage: React.FC = () => {
       return;
     }
 
-    if (payload.new.sender_id !== anonymousId) {
+    // Only play sound for non-join messages from other users
+    if (payload.new.sender_id !== anonymousId && payload.new.type !== 'join') {
       playMessageSound();
     }
     
