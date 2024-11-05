@@ -35,6 +35,8 @@ interface AnimatedTypingState {
   content: string;
   lastUpdated: number;
   position: number; // Add this to track order
+  lastContent?: string;  // Add this to track last non-empty content
+  clearedAt?: number;    // Add this to track when content was cleared
 }
 
 const shapeNames = [
@@ -1398,7 +1400,14 @@ const MainPage: React.FC = () => {
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
       setTypingUsers(current => 
-        current.filter(user => now - user.lastUpdated < 5000)
+        current.filter(user => {
+          // Keep message for 3 seconds after clearing content
+          if (user.clearedAt) {
+            return now - user.clearedAt < 3000;
+          }
+          // Otherwise use normal 5 second timeout
+          return now - user.lastUpdated < 5000;
+        })
       );
       
       // Clean up local ghost if it's old
@@ -1416,20 +1425,33 @@ const MainPage: React.FC = () => {
         
         setTypingUsers(current => {
           const others = current.filter(u => u.user !== payload.user);
+          const existingUser = current.find(u => u.user === payload.user);
+          const position = existingUser?.position ?? payload.position;
+
           if (payload.content?.trim()) {
-            // Preserve existing position or use provided position
-            const existingUser = current.find(u => u.user === payload.user);
-            const position = existingUser?.position ?? payload.position;
-            
+            // Content exists - update or add user
             return [...others, {
               user: payload.user,
               userNumber: payload.userNumber,
               content: payload.content,
               lastUpdated: Date.now(),
-              position
-            }].sort((a, b) => a.position - b.position); // Sort by position
+              position,
+              lastContent: payload.content,
+              clearedAt: undefined // Reset cleared timestamp
+            }].sort((a, b) => a.position - b.position);
+          } else {
+            // Content was cleared - keep last content for 3 seconds
+            const now = Date.now();
+            if (existingUser?.lastContent) {
+              return [...others, {
+                ...existingUser,
+                content: existingUser.lastContent,
+                clearedAt: now,
+                lastUpdated: now
+              }].sort((a, b) => a.position - b.position);
+            }
+            return others;
           }
-          return others;
         });
       })
       .subscribe();
