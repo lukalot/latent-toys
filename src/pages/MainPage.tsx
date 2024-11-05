@@ -867,21 +867,12 @@ const MarkdownContent = styled.div`
   }
 `;
 
+// Update the createRoomLinkPlugin function with proper types
 const createRoomLinkPlugin = () => {
   const ROOM_PATTERN = /\b(t\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+)\b/g;
   
   return () => (tree: any) => {
-    
-    const visitNode = (node: any, depth: number = 0): void => {
-      if (depth > 10) return;
-      
-      // Debug log
-      console.log('Visiting node:', {
-        type: node.type,
-        value: node.value,
-        children: node.children
-      });
-      
+    const visitNode = (node: any): any => {
       if (node.type === 'text' && typeof node.value === 'string') {
         const parts = [];
         let lastIndex = 0;
@@ -889,7 +880,6 @@ const createRoomLinkPlugin = () => {
         
         ROOM_PATTERN.lastIndex = 0;
         while ((match = ROOM_PATTERN.exec(node.value)) !== null) {
-          // Add text before the match
           if (match.index > lastIndex) {
             parts.push({
               type: 'text',
@@ -897,7 +887,6 @@ const createRoomLinkPlugin = () => {
             });
           }
           
-          // Add the room link
           parts.push({
             type: 'link',
             url: `/${match[1]}`,
@@ -910,7 +899,6 @@ const createRoomLinkPlugin = () => {
           lastIndex = match.index + match[1].length;
         }
         
-        // Add remaining text
         if (lastIndex < node.value.length) {
           parts.push({
             type: 'text',
@@ -919,7 +907,6 @@ const createRoomLinkPlugin = () => {
         }
         
         if (parts.length > 0) {
-          // Instead of modifying the node directly, return the parts
           return parts;
         }
       }
@@ -927,10 +914,10 @@ const createRoomLinkPlugin = () => {
       if (node.children) {
         const newChildren = [];
         for (const child of node.children) {
-          const result = visitNode(child, depth + 1);
+          const result = visitNode(child);
           if (Array.isArray(result)) {
             newChildren.push(...result);
-          } else if (result) {
+          } else if (result !== undefined) {
             newChildren.push(result);
           } else {
             newChildren.push(child);
@@ -942,11 +929,11 @@ const createRoomLinkPlugin = () => {
       return node;
     };
 
-    const result = visitNode(tree);
-    return result;
+    return visitNode(tree);
   };
 };
 
+// Update the RoomLink component with proper types
 const RoomLink = React.memo<{
   href: string;
   children: React.ReactNode;
@@ -985,9 +972,6 @@ const RoomLink = React.memo<{
   );
 });
 
-// Add display name
-RoomLink.displayName = 'RoomLink';
-
 // Update the MessageBubbleWithWidth component to be more efficient
 const MessageBubbleWithWidth = React.memo<{
   message: Message;
@@ -1005,23 +989,27 @@ const MessageBubbleWithWidth = React.memo<{
     }
   }, [message.content, message.style]);
 
-  // Memoize the markdown plugins
+  // Memoize the markdown plugins with proper typing
   const remarkPlugins = useMemo(() => [
-    [() => (tree: any) => {
+    () => (tree: any) => {
       tree.children.forEach((node: any) => {
         if (node.type === 'heading') {
           node.type = 'paragraph';
         }
       });
       return tree;
-    }],
+    },
     createRoomLinkPlugin()
   ], []);
 
-  // Memoize the markdown components
+  // Memoize the markdown components with proper typing
   const markdownComponents = useMemo(() => ({
-    a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
-      <RoomLink href={href || ''} onNavigate={onNavigate}>
+    a: ({ href, children, ...props }: { href?: string; children: React.ReactNode } & React.ComponentProps<'a'>) => (
+      <RoomLink 
+        href={href || ''} 
+        onNavigate={onNavigate}
+        {...props}
+      >
         {children}
       </RoomLink>
     )
@@ -1943,8 +1931,12 @@ const MainPage: React.FC = () => {
                                 createRoomLinkPlugin()
                               ]}
                               components={{
-                                a: ({ href, children }) => (
-                                  <RoomLink href={href || ''} onNavigate={setNavigationTitle}>
+                                a: ({ href, children, ...props }: { href?: string; children: React.ReactNode } & React.ComponentProps<'a'>) => (
+                                  <RoomLink 
+                                    href={href || ''} 
+                                    onNavigate={setNavigationTitle}
+                                    {...props}
+                                  >
                                     {children}
                                   </RoomLink>
                                 )
