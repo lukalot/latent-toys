@@ -1339,7 +1339,7 @@ const MainPage: React.FC = () => {
     }
 
     // Only play sound for non-join messages from other users
-    if (payload.new.sender_id !== anonymousId && payload.new.type !== 'join') {
+    if (payload.new.sender_id !== anonymousId && payload.new.type !== 'join' && !document.hasFocus()) {
       playMessageSound();
     }
     
