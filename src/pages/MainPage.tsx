@@ -268,6 +268,11 @@ const MainContent = styled.main`
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+
+  @media (max-width: 700px) {
+    padding: 0;
+    padding-top: 0.3rem;
+  }
 `;
 
 const ChatContainer = styled.div`
@@ -281,6 +286,12 @@ const ChatContainer = styled.div`
   overflow: hidden;
   box-shadow: 0 0 30px rgba(56, 132, 86, 0.2);
   min-height: 0;
+
+  @media (max-width: 700px) {
+    padding: 1.3rem;
+    padding-top: 0.6rem;
+    box-shadow: none;
+  }
 `;
 
 const ChatTitle = styled.h1`
@@ -290,6 +301,10 @@ const ChatTitle = styled.h1`
   width: fit-content;
   max-width: 100%;
   border-bottom: 2px solid #282828;
+
+  @media (max-width: 700px) {
+    font-size: 2rem;
+  }
 `;
 
 const MessageContainer = styled.div`
@@ -492,6 +507,10 @@ const HelpButton = styled.button`
     background-color: #ffffff;
     color: #000;
   }
+  @media (max-width: 700px) {
+    bottom: 0rem;
+    right: 0rem;
+  }
 `;
 
 const MenuButton = styled.button<{ $isOpen: boolean }>`
@@ -516,6 +535,11 @@ const MenuButton = styled.button<{ $isOpen: boolean }>`
   &:hover {
     background-color: #ffffff;
     color: #000;
+  }
+
+  @media (max-width: 700px) {
+    bottom: 0rem;
+    left: 0rem;
   }
 
   ${props => props.$isOpen && `
