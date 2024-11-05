@@ -884,7 +884,6 @@ const MainPage: React.FC = () => {
   const handleSubmitMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Sanitize and validate message
     const sanitizedMessage = sanitizeMessage(newMessage);
     if (!sanitizedMessage || sanitizedMessage.length > MAX_MESSAGE_LENGTH) return;
 
@@ -1086,17 +1085,62 @@ const MainPage: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Keep only the single channel setup effect that has both typing and viewer channels
+  // Update the channel setup effect
   useEffect(() => {
     if (!isConnected) return;
     
     console.log('=== CHANNEL SETUP ===');
     console.log('Room:', navigationTitle);
     
-    // Clear typing users
+    // Clear states when changing rooms
     setTypingUsers([]);
     
-    // Set up broadcast channel for typing
+    // Set up message channel
+    const messageChannel = supabase
+      .channel(`room:${navigationTitle}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `room_id=eq.${navigationTitle}`,
+        },
+        (payload) => {
+          console.log('=== MESSAGE RECEIVED ===', {
+            messageRoom: payload.new.room_id,
+            currentRoom: navigationTitle,
+            message: payload.new.content,
+            sender: payload.new.sender_id
+          });
+
+          // Strict room check
+          if (payload.new.room_id !== navigationTitle) {
+            console.log('Ignoring message - wrong room');
+            return;
+          }
+
+          if (payload.new.sender_id !== anonymousId) {
+            playMessageSound();
+          }
+          
+          setTypingUsers(current => 
+            current.filter(user => 
+              !(user.user === payload.new.sender_id && user.content === payload.new.content)
+            )
+          );
+          
+          setMessages(current => {
+            const filtered = current.filter(msg => 
+              !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
+            );
+            return [...filtered, payload.new as Message];
+          });
+        }
+      )
+      .subscribe();
+
+    // Set up typing channel
     const typingChannel = supabase.channel(`room-${navigationTitle}-typing`, {
       config: {
         broadcast: {
@@ -1106,7 +1150,7 @@ const MainPage: React.FC = () => {
       }
     });
 
-    // Set up viewer count channel
+    // Set up viewer channel
     const viewerChannel = supabase.channel(`presence:${navigationTitle}`, {
       config: {
         presence: {
@@ -1115,6 +1159,7 @@ const MainPage: React.FC = () => {
       }
     });
 
+    // Store refs
     typingChannelRef.current = typingChannel;
     viewerChannelRef.current = viewerChannel;
 
@@ -1165,8 +1210,10 @@ const MainPage: React.FC = () => {
       })
       .subscribe();
 
+    // Clean up ALL channels
     return () => {
-      console.log('=== CLEANING UP CHANNELS ===');
+      console.log('=== CLEANING UP ALL CHANNELS ===');
+      messageChannel.unsubscribe();
       if (viewerChannelRef.current) {
         viewerChannelRef.current.unsubscribe();
         viewerChannelRef.current = null;
@@ -1176,6 +1223,7 @@ const MainPage: React.FC = () => {
         typingChannelRef.current = null;
       }
       setTypingUsers([]);
+      setMessages([]);
     };
   }, [navigationTitle, isConnected, anonymousId]);
 
