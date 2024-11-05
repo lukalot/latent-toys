@@ -33,6 +33,7 @@ interface AnimatedTypingState {
   user: string;
   userNumber: number;
   content: string;
+  lastUpdated: number;  // timestamp of last update
 }
 
 const shapeNames = [
@@ -1188,8 +1189,16 @@ const MainPage: React.FC = () => {
   };
 
   const setupTypingHandlers = (channel: any) => {
+    // Set up interval to clean old typing states
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      setTypingUsers(current => 
+        current.filter(user => now - user.lastUpdated < 5000)
+      );
+    }, 1000); // Check every second
+
     channel
-      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+      .on('broadcast', { event: 'typing' }, ({ payload }: { payload: any }) => {
         if (!payload?.user || !payload?.userNumber) return;
         
         setTypingUsers(current => {
@@ -1201,13 +1210,19 @@ const MainPage: React.FC = () => {
             return [...others, {
               user: payload.user,
               userNumber: payload.userNumber,
-              content: payload.content
+              content: payload.content,
+              lastUpdated: Date.now()
             }];
           }
           return others;
         });
       })
       .subscribe();
+
+    // Clean up interval on unmount
+    return () => {
+      clearInterval(cleanupInterval);
+    };
   };
 
   const setupViewerHandlers = (channel: any) => {
