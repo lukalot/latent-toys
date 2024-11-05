@@ -1045,6 +1045,8 @@ const MainPage: React.FC = () => {
       };
 
       setMessages(prev => [...prev, localJoinMessage]);
+      // Force scroll after local message
+      setTimeout(() => scrollToBottom(true), 0);
 
       const { error } = await supabase
         .from('messages')
@@ -1059,6 +1061,9 @@ const MainPage: React.FC = () => {
       if (error) {
         console.error('Error sending join message:', error);
         setMessages(prev => prev.filter(msg => msg.id !== localJoinMessage.id));
+      } else {
+        // Force scroll after server confirmation
+        setTimeout(() => scrollToBottom(true), 100);
       }
     }
   };
