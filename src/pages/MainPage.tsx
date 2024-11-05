@@ -103,13 +103,18 @@ function stringToColor(str: string): string {
 }
 
 const PageContainer = styled.div<{ $bgColor: string }>`
-  height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
   background-color: ${props => props.$bgColor};
   position: relative;
   display: flex;
   flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 
   /* Background layers */
   &::before {
@@ -262,6 +267,7 @@ const MainContent = styled.main`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 `;
 
 const ChatContainer = styled.div`
@@ -274,6 +280,7 @@ const ChatContainer = styled.div`
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 0 30px rgba(56, 132, 86, 0.2);
+  min-height: 0;
 `;
 
 const ChatTitle = styled.h1`
@@ -331,6 +338,7 @@ const MessageInput = styled.textarea`
   border: 1px solid #2d2d2d;
   font-size: 1rem;
   background-color: #2d2d2d;
+  border-radius: 0rem;
   color: white;
   resize: none;
   max-height: 12rem;
