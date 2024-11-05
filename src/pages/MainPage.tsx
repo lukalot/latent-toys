@@ -33,7 +33,6 @@ interface AnimatedTypingState {
   user: string;
   userNumber: number;
   content: string;
-  targetContent: string;
 }
 
 const shapeNames = [
@@ -1106,37 +1105,7 @@ const MainPage: React.FC = () => {
           table: 'messages',
           filter: `room_id=eq.${navigationTitle}`,
         },
-        (payload) => {
-          console.log('=== MESSAGE RECEIVED ===', {
-            messageRoom: payload.new.room_id,
-            currentRoom: navigationTitle,
-            message: payload.new.content,
-            sender: payload.new.sender_id
-          });
-
-          // Strict room check
-          if (payload.new.room_id !== navigationTitle) {
-            console.log('Ignoring message - wrong room');
-            return;
-          }
-
-          if (payload.new.sender_id !== anonymousId) {
-            playMessageSound();
-          }
-          
-          setTypingUsers(current => 
-            current.filter(user => 
-              !(user.user === payload.new.sender_id && user.content === payload.new.content)
-            )
-          );
-          
-          setMessages(current => {
-            const filtered = current.filter(msg => 
-              !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
-            );
-            return [...filtered, payload.new as Message];
-          });
-        }
+        handleNewMessage
       )
       .subscribe();
 
@@ -1163,10 +1132,81 @@ const MainPage: React.FC = () => {
     typingChannelRef.current = typingChannel;
     viewerChannelRef.current = viewerChannel;
 
-    // Set up viewer count tracking
-    viewerChannel
+    // Set up handlers
+    setupViewerHandlers(viewerChannel);
+    setupTypingHandlers(typingChannel);
+
+    return () => {
+      console.log('=== CLEANING UP ALL CHANNELS ===');
+      messageChannel.unsubscribe();
+      typingChannel.unsubscribe();
+      viewerChannel.unsubscribe();
+      typingChannelRef.current = null;
+      viewerChannelRef.current = null;
+      setTypingUsers([]);
+      setMessages([]);
+    };
+  }, [navigationTitle, isConnected, anonymousId]);
+
+  const handleNewMessage = (payload: any) => {
+    console.log('=== MESSAGE RECEIVED ===', {
+      messageRoom: payload.new.room_id,
+      currentRoom: navigationTitle,
+      message: payload.new.content,
+      sender: payload.new.sender_id
+    });
+
+    // Strict room check
+    if (payload.new.room_id !== navigationTitle) {
+      console.log('Ignoring message - wrong room');
+      return;
+    }
+
+    if (payload.new.sender_id !== anonymousId) {
+      playMessageSound();
+    }
+    
+    // Remove typing indicator when message is received
+    setTypingUsers(current => 
+      current.filter(user => user.user !== payload.new.sender_id)
+    );
+    
+    // Update messages
+    setMessages(current => {
+      const filtered = current.filter(msg => 
+        !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
+      );
+      return [...filtered, payload.new as Message];
+    });
+  };
+
+  const setupTypingHandlers = (channel: any) => {
+    channel
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!payload?.user || !payload?.userNumber) return;
+        
+        setTypingUsers(current => {
+          // Remove existing typing state for this user
+          const others = current.filter(u => u.user !== payload.user);
+          
+          // Add new typing state if there's content
+          if (payload.content?.trim()) {
+            return [...others, {
+              user: payload.user,
+              userNumber: payload.userNumber,
+              content: payload.content
+            }];
+          }
+          return others;
+        });
+      })
+      .subscribe();
+  };
+
+  const setupViewerHandlers = (channel: any) => {
+    channel
       .on('presence', { event: 'sync' }, () => {
-        const state = viewerChannel.presenceState();
+        const state = channel.presenceState();
         const newCount = Object.keys(state).length;
         
         if (isInitialViewerCount) {
@@ -1180,52 +1220,10 @@ const MainPage: React.FC = () => {
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await viewerChannel.track({ user: anonymousId });
+          await channel.track({ user: anonymousId });
         }
       });
-
-    // Set up typing broadcast handler
-    typingChannel
-      .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (!payload?.user || !payload?.userNumber) return;
-        
-        setTypingUsers(current => {
-          const validUsers = current.filter(u => 
-            u.user && 
-            u.userNumber > 0 && 
-            typeof u.content === 'string' &&
-            u.user !== payload.user
-          );
-
-          if (payload.content?.trim()) {
-            return [...validUsers, {
-              user: payload.user,
-              userNumber: payload.userNumber,
-              content: payload.content,
-              targetContent: payload.content
-            }];
-          }
-          return validUsers;
-        });
-      })
-      .subscribe();
-
-    // Clean up ALL channels
-    return () => {
-      console.log('=== CLEANING UP ALL CHANNELS ===');
-      messageChannel.unsubscribe();
-      if (viewerChannelRef.current) {
-        viewerChannelRef.current.unsubscribe();
-        viewerChannelRef.current = null;
-      }
-      if (typingChannelRef.current) {
-        typingChannelRef.current.unsubscribe();
-        typingChannelRef.current = null;
-      }
-      setTypingUsers([]);
-      setMessages([]);
-    };
-  }, [navigationTitle, isConnected, anonymousId]);
+  };
 
   return (
     <PageContainer $bgColor={backgroundColor}>
