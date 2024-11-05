@@ -4,6 +4,7 @@ import halftonePattern from '../assets/untitled.png';
 import logoSvg from '../assets/noun-spinning-top-753468.svg';
 import { supabase, checkSupabaseConnection } from '../lib/supabaseClient';
 import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
+import { useMessageSound } from '../hooks/useMessageSound';
 
 interface Message {
   id: string;
@@ -13,6 +14,7 @@ interface Message {
   created_at: string;
   room_id: string;
   local?: boolean;
+  type?: 'join' | 'message';
 }
 
 interface RoomUserNumber {
@@ -435,6 +437,15 @@ const ViewerCount = styled.div`
   padding-top: 0.1rem;
 `;
 
+const JoinMessage = styled.div`
+  text-align: center;
+  padding: 0rem;
+  margin: 0rem;
+  color: #666;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.9rem;
+`;
+
 const MainPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -449,6 +460,8 @@ const MainPage: React.FC = () => {
   const [oldestLoadedTimestamp, setOldestLoadedTimestamp] = useState<string | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
   const [isInitialViewerCount, setIsInitialViewerCount] = useState(true);
+  const playMessageSound = useMessageSound();
+  const [hasTyped, setHasTyped] = useState(false);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -461,19 +474,14 @@ const MainPage: React.FC = () => {
   }, [navigationTitle]);
 
   useEffect(() => {
-    // Clear messages when switching toys
-    setMessages([]);
-    
-    // Load messages for the room
+    // Only proceed if connected
+    if (!isConnected) return;
+
+    console.log('Loading messages for:', navigationTitle);
+
+    // Function to load messages
     const loadToyMessages = async () => {
-      if (!isConnected) {
-        console.error('Not connected to Supabase');
-        return;
-      }
-
       try {
-        console.log('Loading messages for:', navigationTitle);
-
         // First ensure the room exists
         const { error: roomError } = await supabase
           .from('rooms')
@@ -498,8 +506,6 @@ const MainPage: React.FC = () => {
           return;
         }
 
-        console.log('Fetched messages:', existingMessages);
-        
         if (existingMessages) {
           const reversedMessages = existingMessages.reverse();
           setMessages(reversedMessages);
@@ -519,6 +525,9 @@ const MainPage: React.FC = () => {
       }
     };
 
+    // Load initial messages
+    loadToyMessages();
+
     // Set up real-time subscription
     const channel = supabase
       .channel(`room:${navigationTitle}`)
@@ -532,6 +541,10 @@ const MainPage: React.FC = () => {
         },
         (payload) => {
           console.log('Received new message:', payload);
+          // Play sound if message is from another user
+          if (payload.new.sender_id !== anonymousId) {
+            playMessageSound();
+          }
           setMessages(current => {
             const filtered = current.filter(msg => 
               !(msg.local && msg.content === payload.new.content)
@@ -540,9 +553,7 @@ const MainPage: React.FC = () => {
           });
         }
       )
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
+      .subscribe();
 
     // Add presence channel
     const presenceChannel = supabase.channel(`presence:${navigationTitle}`, {
@@ -579,13 +590,12 @@ const MainPage: React.FC = () => {
         }
       });
 
-    loadToyMessages();
-
+    // Cleanup function
     return () => {
       channel.unsubscribe();
       presenceChannel.unsubscribe();
     };
-  }, [navigationTitle, isConnected]);
+  }, [navigationTitle, isConnected, anonymousId]); // Simplified dependencies array
 
   const getCurrentUserNumber = () => {
     const roomMapping = roomUserNumbers.find(r => r.room_id === navigationTitle);
@@ -685,12 +695,14 @@ const MainPage: React.FC = () => {
 
   const autoResizeTextArea = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const textarea = e.target;
-    // Reset height to auto to get the correct scrollHeight
     textarea.style.height = 'auto';
-    // Set new height based on scrollHeight
     textarea.style.height = `${textarea.scrollHeight}px`;
-    // Update the message state
     setNewMessage(textarea.value);
+    
+    // Call handleFirstType when the user starts typing
+    if (textarea.value.length === 1) {
+      handleFirstType();
+    }
   };
 
   const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
@@ -730,6 +742,47 @@ const MainPage: React.FC = () => {
         console.error('Error loading more messages:', error);
       } finally {
         setIsLoadingMore(false);
+      }
+    }
+  };
+
+  const handleFirstType = async () => {
+    if (!hasTyped) {
+      setHasTyped(true);
+      
+      const currentUserNumber = getCurrentUserNumber();
+      const shapeName = shapeNames[(currentUserNumber - 1) % shapeNames.length];
+      
+      // Create and add local join message first
+      const localJoinMessage: Message = {
+        id: crypto.randomUUID(),
+        content: `${shapeName} joined the room.`,
+        sender_id: anonymousId,
+        user_number: currentUserNumber,
+        created_at: new Date().toISOString(),
+        room_id: navigationTitle,
+        type: 'join',
+        local: true
+      };
+
+      // Add local message immediately
+      setMessages(prev => [...prev, localJoinMessage]);
+
+      // Send to server
+      const { error } = await supabase
+        .from('messages')
+        .insert({
+          content: localJoinMessage.content,
+          sender_id: anonymousId,
+          user_number: currentUserNumber,
+          room_id: navigationTitle,
+          type: 'join'
+        });
+
+      if (error) {
+        console.error('Error sending join message:', error);
+        // Remove local message if server insert failed
+        setMessages(prev => prev.filter(msg => msg.id !== localJoinMessage.id));
       }
     }
   };
@@ -778,23 +831,29 @@ const MainPage: React.FC = () => {
                 <LoadingIndicator>Loading more messages...</LoadingIndicator>
               )}
               {messages.length > 0 ? (
-                messages.map((message, index) => (
-                  <MessageBubble 
-                    key={message.id}
-                    $isUser={message.sender_id === anonymousId}
-                  >
-                    <MessageHeader>
-                      <ShapeName>
-                        {shapeNames[(message.user_number - 1) % shapeNames.length]}
-                      </ShapeName>
-                      {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
-                        <LoopCount>
-                          {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
-                        </LoopCount>
-                      )}
-                    </MessageHeader>
-                    {message.content}
-                  </MessageBubble>
+                messages.map((message) => (
+                  message.type === 'join' ? (
+                    <JoinMessage key={message.id}>
+                      {message.content}
+                    </JoinMessage>
+                  ) : (
+                    <MessageBubble 
+                      key={message.id}
+                      $isUser={message.sender_id === anonymousId}
+                    >
+                      <MessageHeader>
+                        <ShapeName>
+                          {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                        </ShapeName>
+                        {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                          <LoopCount>
+                            {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                          </LoopCount>
+                        )}
+                      </MessageHeader>
+                      {message.content}
+                    </MessageBubble>
+                  )
                 ))
               ) : (
                 <EmptyStateContainer>

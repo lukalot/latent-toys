@@ -8,4 +8,9 @@ declare module '*.png' {
 declare module '*.svg' {
   const value: string;
   export default value;
+}
+
+declare module '*.wav' {
+  const src: string;
+  export default src;
 } 
