@@ -33,7 +33,8 @@ interface AnimatedTypingState {
   user: string;
   userNumber: number;
   content: string;
-  lastUpdated: number;  // timestamp of last update
+  lastUpdated: number;
+  position: number; // Add this to track order
 }
 
 const shapeNames = [
@@ -730,6 +731,12 @@ const MainPage: React.FC = () => {
   const typingChannelRef = useRef<any>(null);
   const viewerChannelRef = useRef<any>(null);
 
+  // Add back local ghost tracking
+  const [localGhostMessage, setLocalGhostMessage] = useState<{
+    content: string;
+    lastUpdated: number;
+  } | null>(null);
+
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
       setIsConnected(connected);
@@ -889,6 +896,9 @@ const MainPage: React.FC = () => {
 
     const currentUserNumber = getCurrentUserNumber();
     
+    // Clear local ghost immediately
+    setLocalGhostMessage(null);
+    
     const tempMessage: Message = {
       id: crypto.randomUUID(),
       content: sanitizedMessage,
@@ -964,21 +974,17 @@ const MainPage: React.FC = () => {
     
     const content = textarea.value.trim();
     
-    // Update our own typing state directly
-    setTypingUsers(current => {
-      const others = current.filter(u => u.user !== anonymousId);
-      if (content) {
-        return [...others, {
-          user: anonymousId,
-          userNumber: getCurrentUserNumber(),
-          content: content,
-          lastUpdated: Date.now()
-        }];
-      }
-      return others;
-    });
+    // Update local ghost immediately
+    if (content) {
+      setLocalGhostMessage({
+        content,
+        lastUpdated: Date.now()
+      });
+    } else {
+      setLocalGhostMessage(null);
+    }
     
-    // Broadcast to others
+    // Broadcast to others with position
     if (typingChannelRef.current) {
       typingChannelRef.current.send({
         type: 'broadcast',
@@ -986,13 +992,10 @@ const MainPage: React.FC = () => {
         payload: {
           user: anonymousId,
           userNumber: getCurrentUserNumber(),
-          content: content || null
+          content: content || null,
+          position: typingUsers.length // Use current length as position
         }
       });
-    }
-    
-    if (textarea.value.length === 1) {
-      handleFirstType();
     }
   };
 
@@ -1204,12 +1207,19 @@ const MainPage: React.FC = () => {
   };
 
   const setupTypingHandlers = (channel: any) => {
-    // Set up interval to clean old typing states
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
       setTypingUsers(current => 
         current.filter(user => now - user.lastUpdated < 5000)
       );
+      
+      // Clean up local ghost if it's old
+      setLocalGhostMessage(current => {
+        if (current && now - current.lastUpdated >= 5000) {
+          return null;
+        }
+        return current;
+      });
     }, 1000);
 
     channel
@@ -1219,12 +1229,17 @@ const MainPage: React.FC = () => {
         setTypingUsers(current => {
           const others = current.filter(u => u.user !== payload.user);
           if (payload.content?.trim()) {
+            // Preserve existing position or use provided position
+            const existingUser = current.find(u => u.user === payload.user);
+            const position = existingUser?.position ?? payload.position;
+            
             return [...others, {
               user: payload.user,
               userNumber: payload.userNumber,
               content: payload.content,
-              lastUpdated: Date.now()
-            }];
+              lastUpdated: Date.now(),
+              position
+            }].sort((a, b) => a.position - b.position); // Sort by position
           }
           return others;
         });
@@ -1328,21 +1343,39 @@ const MainPage: React.FC = () => {
                     )
                   ))}
                   
-                  {typingUsers.map(user => (
-                    <GhostMessageBubble key={user.user} $isUser={user.user === anonymousId}>
-                      <MessageHeader>
-                        <ShapeName>
-                          {shapeNames[(user.userNumber - 1) % shapeNames.length]}
-                        </ShapeName>
-                        {Math.floor((user.userNumber - 1) / shapeNames.length) > 0 && (
-                          <LoopCount>
-                            {Math.floor((user.userNumber - 1) / shapeNames.length) + 1}
-                          </LoopCount>
-                        )}
-                      </MessageHeader>
-                      {user.content}
-                    </GhostMessageBubble>
-                  ))}
+                  {/* Render all ghost messages sorted by content length */}
+                  {[
+                    ...typingUsers
+                      .filter(user => user.user !== anonymousId)
+                      .map(user => ({
+                        isLocal: false,
+                        content: user.content,
+                        userNumber: user.userNumber,
+                        user: user.user
+                      })),
+                    ...(localGhostMessage ? [{
+                      isLocal: true,
+                      content: localGhostMessage.content,
+                      userNumber: getCurrentUserNumber(),
+                      user: anonymousId
+                    }] : [])
+                  ]
+                    .sort((a, b) => b.content.length - a.content.length) // Sort by content length, longest first
+                    .map(ghost => (
+                      <GhostMessageBubble key={ghost.user} $isUser={ghost.isLocal}>
+                        <MessageHeader>
+                          <ShapeName>
+                            {shapeNames[(ghost.userNumber - 1) % shapeNames.length]}
+                          </ShapeName>
+                          {Math.floor((ghost.userNumber - 1) / shapeNames.length) > 0 && (
+                            <LoopCount>
+                              {Math.floor((ghost.userNumber - 1) / shapeNames.length) + 1}
+                            </LoopCount>
+                          )}
+                        </MessageHeader>
+                        {ghost.content}
+                      </GhostMessageBubble>
+                    ))}
                 </>
               ) : (
                 <EmptyStateContainer>
