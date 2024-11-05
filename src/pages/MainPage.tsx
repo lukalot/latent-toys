@@ -321,6 +321,12 @@ const MessageContainer = styled.div`
   padding-top: 1rem;
   scrollbar-width: none;
   -ms-overflow-style: none;
+
+  @media (max-width: 700px) {
+    flex: 1;
+    height: 0; // Force it to shrink
+  }
+
   /* Custom scrollbar styling */
   &::-webkit-scrollbar {
     width: 8px;
@@ -346,6 +352,13 @@ const MessageBubble = styled.div<{ $isUser?: boolean }>`
 
 const InputContainer = styled.form`
   margin-top: auto;
+  
+  @media (max-width: 700px) {
+    position: sticky;
+    bottom: 0;
+    background: #000;
+    margin-top: 0;
+  }
 `;
 
 const MessageInput = styled.textarea`
@@ -356,7 +369,7 @@ const MessageInput = styled.textarea`
   border: 1px solid #2d2d2d;
   font-size: 1rem;
   background-color: #2d2d2d;
-  border-radius: 0rem;
+  border-radius: 0;
   color: white;
   resize: none;
   max-height: 12rem;
@@ -364,6 +377,12 @@ const MessageInput = styled.textarea`
   line-height: 1.3;
   scrollbar-width: none;
   height: 100%;
+  
+  @media (max-width: 700px) {
+    padding: 0.8rem;
+    font-size: 16px; // Prevent iOS zoom
+    line-height: 1.4;
+  }
   
   &:focus {
     outline: none;
@@ -737,8 +756,9 @@ const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
   min-height: 0;
   
   @media (max-width: 700px) {
-    margin-bottom: ${props => props.$keyboardHeight}px;
-    transition: margin-bottom 0.1s ease-out;
+    position: relative;
+    height: ${props => `calc(100dvh - ${props.$keyboardHeight}px - 3.5rem)`}; // Account for header
+    transition: height 0.1s ease-out;
   }
 `;
 
@@ -1321,24 +1341,61 @@ const MainPage: React.FC = () => {
       });
   };
 
+  // Update the keyboard height effect
   useEffect(() => {
     const viewport = window.visualViewport;
     
     if (!viewport) return;
 
     const handleResize = () => {
-      const currentHeight = window.innerHeight - viewport.height;
-      setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
+      if (document.activeElement?.tagName === 'TEXTAREA') {
+        const currentHeight = window.innerHeight - viewport.height;
+        setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
+        
+        // Force scroll to bottom when keyboard appears
+        setTimeout(() => scrollToBottom(true), 100);
+      } else {
+        setKeyboardHeight(0);
+      }
     };
 
     viewport.addEventListener('resize', handleResize);
     viewport.addEventListener('scroll', handleResize);
 
+    // Also handle focus/blur events
+    const handleFocus = () => {
+      if (document.activeElement?.tagName === 'TEXTAREA') {
+        setTimeout(() => {
+          const currentHeight = window.innerHeight - viewport.height;
+          setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
+          scrollToBottom(true);
+        }, 100);
+      }
+    };
+
+    const handleBlur = () => {
+      setKeyboardHeight(0);
+    };
+
+    document.addEventListener('focus', handleFocus, true);
+    document.addEventListener('blur', handleBlur, true);
+
     return () => {
       viewport.removeEventListener('resize', handleResize);
       viewport.removeEventListener('scroll', handleResize);
+      document.removeEventListener('focus', handleFocus, true);
+      document.removeEventListener('blur', handleBlur, true);
     };
   }, []);
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    // Prevent browser scroll
+    e.preventDefault();
+    // Force window to stay at top
+    window.scrollTo(0, 0);
+    // Optional: add a small delay to ensure scroll position
+    setTimeout(() => window.scrollTo(0, 0), 50);
+  };
 
   return (
     <PageContainer $bgColor={backgroundColor}>
@@ -1463,6 +1520,7 @@ const MainPage: React.FC = () => {
                   value={newMessage}
                   onChange={autoResizeTextArea}
                   onKeyDown={handleKeyDown}
+                  onFocus={handleInputFocus}
                   placeholder="Type your message..."
                   rows={1}
                 />
