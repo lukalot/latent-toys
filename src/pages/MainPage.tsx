@@ -729,10 +729,6 @@ const MainPage: React.FC = () => {
   const [typingUsers, setTypingUsers] = useState<AnimatedTypingState[]>([]);
   const typingChannelRef = useRef<any>(null);
   const viewerChannelRef = useRef<any>(null);
-  const [localGhostMessage, setLocalGhostMessage] = useState<{
-    content: string;
-    lastUpdated: number;
-  } | null>(null);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -967,15 +963,22 @@ const MainPage: React.FC = () => {
     setNewMessage(textarea.value);
     
     const content = textarea.value.trim();
-    if (content) {
-      setLocalGhostMessage({
-        content,
-        lastUpdated: Date.now()
-      });
-    } else {
-      setLocalGhostMessage(null);
-    }
     
+    // Update our own typing state directly
+    setTypingUsers(current => {
+      const others = current.filter(u => u.user !== anonymousId);
+      if (content) {
+        return [...others, {
+          user: anonymousId,
+          userNumber: getCurrentUserNumber(),
+          content: content,
+          lastUpdated: Date.now()
+        }];
+      }
+      return others;
+    });
+    
+    // Broadcast to others
     if (typingChannelRef.current) {
       typingChannelRef.current.send({
         type: 'broadcast',
@@ -1207,25 +1210,14 @@ const MainPage: React.FC = () => {
       setTypingUsers(current => 
         current.filter(user => now - user.lastUpdated < 5000)
       );
-      
-      // Also clean up local ghost message if it's old
-      setLocalGhostMessage(current => {
-        if (current && now - current.lastUpdated >= 5000) {
-          return null;
-        }
-        return current;
-      });
-    }, 1000); // Check every second
+    }, 1000);
 
     channel
       .on('broadcast', { event: 'typing' }, ({ payload }: { payload: any }) => {
         if (!payload?.user || !payload?.userNumber) return;
         
         setTypingUsers(current => {
-          // Remove existing typing state for this user
           const others = current.filter(u => u.user !== payload.user);
-          
-          // Add new typing state if there's content
           if (payload.content?.trim()) {
             return [...others, {
               user: payload.user,
@@ -1239,7 +1231,6 @@ const MainPage: React.FC = () => {
       })
       .subscribe();
 
-    // Clean up interval on unmount
     return () => {
       clearInterval(cleanupInterval);
     };
@@ -1338,7 +1329,7 @@ const MainPage: React.FC = () => {
                   ))}
                   
                   {typingUsers.map(user => (
-                    <GhostMessageBubble key={user.user} $isUser={false}>
+                    <GhostMessageBubble key={user.user} $isUser={user.user === anonymousId}>
                       <MessageHeader>
                         <ShapeName>
                           {shapeNames[(user.userNumber - 1) % shapeNames.length]}
@@ -1352,22 +1343,6 @@ const MainPage: React.FC = () => {
                       {user.content}
                     </GhostMessageBubble>
                   ))}
-                  
-                  {localGhostMessage && (
-                    <GhostMessageBubble $isUser={true}>
-                      <MessageHeader>
-                        <ShapeName>
-                          {shapeNames[(getCurrentUserNumber() - 1) % shapeNames.length]}
-                        </ShapeName>
-                        {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) > 0 && (
-                          <LoopCount>
-                            {Math.floor((getCurrentUserNumber() - 1) / shapeNames.length) + 1}
-                          </LoopCount>
-                        )}
-                      </MessageHeader>
-                      {localGhostMessage.content}
-                    </GhostMessageBubble>
-                  )}
                 </>
               ) : (
                 <EmptyStateContainer>
