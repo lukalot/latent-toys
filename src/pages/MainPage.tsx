@@ -297,6 +297,8 @@ const MessageContainer = styled.div`
   flex-direction: column;
   gap: 1rem;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   flex: 1;
   padding: 0rem;
   padding-bottom: 1rem;
