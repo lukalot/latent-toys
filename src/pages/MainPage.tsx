@@ -419,7 +419,7 @@ const EmptyStateImage = styled.img`
   }
 `;
 
-const MessageHeader = styled.div`
+const MessageHeaderContainer = styled.div`
   font-size: 0.8rem;
   opacity: 0.5;
   margin-bottom: 0.2rem;
@@ -814,6 +814,28 @@ const AuthButton: React.FC<AuthButtonProps> = ({ provider, isLoading }) => {
   );
 };
 
+// Add this helper function near other utility functions (like getNextUserNumber)
+const isUserMessage = (messageId: string, user: User | null, anonymousId: string): boolean => {
+  if (user?.id === messageId) return true;
+  if (!user && messageId === anonymousId) return true;
+  return false;
+};
+
+// Update the interface for cache
+interface UserMetadataCache {
+  [key: string]: {
+    username: string | null;
+    lastFetched: number;
+  };
+}
+
+// Add this interface for user identity
+interface UserIdentity {
+  id: string;           // User ID (either auth user ID or anonymous ID)
+  username: string;     // Username (either from profile or generated shape name)
+  isAuthenticated: boolean;
+}
+
 const MainPage: React.FC = () => {
   // Add state inside component
   const [authPopupOrigin, setAuthPopupOrigin] = useState<AuthPopupOrigin>(null);
@@ -859,6 +881,124 @@ const MainPage: React.FC = () => {
   }>({});
   const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false);
   const [buttonPosition, setButtonPosition] = useState<ButtonPosition | null>(null);
+  const [userMetadataCache, setUserMetadataCache] = useState<UserMetadataCache>({});
+
+  const getUserMetadata = async (userId: string) => {
+    const now = Date.now();
+    const cached = userMetadataCache[userId];
+    
+    // Return cached value (even if null) if recently fetched
+    if (cached && now - cached.lastFetched < 300000) {
+      return cached.username;
+    }
+
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('username, name, full_name')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('Error fetching user profile:', profileError);
+        setUserMetadataCache(prev => ({
+          ...prev,
+          [userId]: { username: null, lastFetched: now }
+        }));
+        return null;
+      }
+
+      const username = profile?.username || profile?.name || profile?.full_name || null;
+      
+      setUserMetadataCache(prev => ({
+        ...prev,
+        [userId]: { username, lastFetched: now }
+      }));
+
+      return username;
+
+    } catch (error) {
+      console.error('Error in getUserMetadata:', error);
+      setUserMetadataCache(prev => ({
+        ...prev,
+        [userId]: { username: null, lastFetched: now }
+      }));
+      return null;
+    }
+  };
+
+  // Helper to get current user identity
+  const getCurrentUserIdentity = (userNumber: number): UserIdentity => {
+    if (user) {
+      const cachedData = userMetadataCache[user.id];
+      return {
+        id: user.id,
+        username: cachedData?.username || 
+                 user.user_metadata?.user_name || 
+                 user.user_metadata?.preferred_username || 
+                 'User',
+        isAuthenticated: true
+      };
+    }
+    
+    return {
+      id: anonymousId,
+      username: shapeNames[(userNumber - 1) % shapeNames.length],
+      isAuthenticated: false
+    };
+  };
+
+  // Helper to get identity for any user ID
+  const getUserIdentity = async (userId: string, userNumber: number): Promise<UserIdentity> => {
+    const cachedData = userMetadataCache[userId];
+    
+    if (cachedData?.username) {
+      return {
+        id: userId,
+        username: cachedData.username,
+        isAuthenticated: true
+      };
+    }
+
+    // If we have no cached data, try to fetch it
+    const username = await getUserMetadata(userId);
+    if (username) {
+      return {
+        id: userId,
+        username,
+        isAuthenticated: true
+      };
+    }
+
+    // If no profile found, treat as anonymous
+    return {
+      id: userId,
+      username: shapeNames[(userNumber - 1) % shapeNames.length],
+      isAuthenticated: false
+    };
+  };
+
+  // Update MessageHeader to use UserIdentity
+  const MessageHeader = ({ senderId, userNumber }: { senderId: string; userNumber: number }) => {
+    const [identity, setIdentity] = useState<UserIdentity | null>(null);
+    
+    useEffect(() => {
+      getUserIdentity(senderId, userNumber).then(setIdentity);
+    }, [senderId, userNumber]);
+
+    if (!identity) return null;
+
+    return (
+      <MessageHeaderContainer>
+        <ShapeName>{identity.username}</ShapeName>
+        {!identity.isAuthenticated && Math.floor((userNumber - 1) / shapeNames.length) > 0 && (
+          <LoopCount>
+            {Math.floor((userNumber - 1) / shapeNames.length) + 1}
+          </LoopCount>
+        )}
+      </MessageHeaderContainer>
+    );
+  };
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -1011,6 +1151,7 @@ const MainPage: React.FC = () => {
     });
   };
 
+  // Update handleSubmitMessage to use current identity
   const handleSubmitMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -1018,11 +1159,12 @@ const MainPage: React.FC = () => {
     if (!sanitizedMessage || sanitizedMessage.length > MAX_MESSAGE_LENGTH) return;
 
     const currentUserNumber = getCurrentUserNumber();
+    const currentIdentity = getCurrentUserIdentity(currentUserNumber);
     
     const tempMessage: Message = {
       id: crypto.randomUUID(),
       content: sanitizedMessage,
-      sender_id: anonymousId,
+      sender_id: currentIdentity.id,
       user_number: currentUserNumber,
       created_at: new Date().toISOString(),
       room_id: navigationTitle,
@@ -1032,17 +1174,16 @@ const MainPage: React.FC = () => {
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
     
-    // Reset textarea height
-    const textarea = document.querySelector('textarea');
-    if (textarea) {
-      textarea.style.height = 'auto';
-    }
+    // Clear typing state when message is sent
+    setTypingUsers(current => 
+      current.filter(u => u.user !== currentIdentity.id)
+    );
 
     const { data, error } = await supabase
       .from('messages')
       .insert({
         content: sanitizedMessage,
-        sender_id: anonymousId,
+        sender_id: currentIdentity.id,
         user_number: currentUserNumber,
         room_id: navigationTitle
       })
@@ -1052,6 +1193,9 @@ const MainPage: React.FC = () => {
       console.error('Error saving message:', error);
       setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
     }
+
+    // Force scroll after sending
+    requestAnimationFrame(() => scrollToBottom(true));
   };
 
   const handleNavigationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1073,7 +1217,7 @@ const MainPage: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, typingUsers, newMessage]); // Add newMessage to dependencies
+  }, [messages, typingUsers]); // Remove newMessage from dependencies
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -1093,13 +1237,14 @@ const MainPage: React.FC = () => {
     setNewMessage(textarea.value);
     
     const content = textarea.value.trim();
+    const currentIdentity = getCurrentUserIdentity(getCurrentUserNumber());
     
-    // Update our own typing state directly
+    // Update typing state without triggering scroll
     setTypingUsers(current => {
-      const others = current.filter(u => u.user !== anonymousId);
+      const others = current.filter(u => u.user !== currentIdentity.id);
       if (content) {
         return [...others, {
-          user: anonymousId,
+          user: currentIdentity.id,
           userNumber: getCurrentUserNumber(),
           content: content,
           lastUpdated: Date.now()
@@ -1114,7 +1259,7 @@ const MainPage: React.FC = () => {
         type: 'broadcast',
         event: 'typing',
         payload: {
-          user: anonymousId,
+          user: currentIdentity.id,
           userNumber: getCurrentUserNumber(),
           content: content || null
         }
@@ -1411,7 +1556,8 @@ const MainPage: React.FC = () => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: window.location.origin
+          redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'read:user user:email'  // Add scopes for GitHub
         }
       });
 
@@ -1465,6 +1611,30 @@ const MainPage: React.FC = () => {
     setIsAuthPopupOpen(true);
   };
 
+  // Remove the useEffect for scrolling
+  useEffect(() => {
+    const handleNewContent = () => {
+      // Use RAF to ensure DOM is updated
+      requestAnimationFrame(() => {
+        if (messageContainerRef.current) {
+          const { scrollHeight, scrollTop, clientHeight } = messageContainerRef.current;
+          const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+          
+          if (isNearBottom) {
+            messageContainerRef.current.scrollTop = scrollHeight;
+          }
+        }
+      });
+    };
+
+    // Set up an observer to watch for height changes
+    if (messageContainerRef.current) {
+      const resizeObserver = new ResizeObserver(handleNewContent);
+      resizeObserver.observe(messageContainerRef.current);
+      return () => resizeObserver.disconnect();
+    }
+  }, []); // Empty dependency array since we're using ResizeObserver
+
   return (
     <PageContainer $bgColor={backgroundColor}>
       <Header>
@@ -1484,11 +1654,12 @@ const MainPage: React.FC = () => {
         <AuthButtonsContainer>
           {user ? (
             <>
-              <LoginButton onClick={handleSignOut}>
-                Sign out
-              </LoginButton>
               <SignUpButton as="div">
-                {user.email || user.user_metadata.full_name || 'User'}
+                {user.user_metadata.user_name || 
+                 user.user_metadata.preferred_username ||
+                 user.user_metadata.name ||
+                 user.user_metadata.full_name ||
+                 'User'}
               </SignUpButton>
             </>
           ) : (
@@ -1559,18 +1730,12 @@ const MainPage: React.FC = () => {
                     ) : (
                       <MessageBubble 
                         key={message.id}
-                        $isUser={message.sender_id === anonymousId}
+                        $isUser={isUserMessage(message.sender_id, user, anonymousId)}
                       >
-                        <MessageHeader>
-                          <ShapeName>
-                            {shapeNames[(message.user_number - 1) % shapeNames.length]}
-                          </ShapeName>
-                          {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
-                            <LoopCount>
-                              {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
-                            </LoopCount>
-                          )}
-                        </MessageHeader>
+                        <MessageHeader 
+                          senderId={message.sender_id}
+                          userNumber={message.user_number}
+                        />
                         {message.content}
                       </MessageBubble>
                     )
@@ -1578,16 +1743,10 @@ const MainPage: React.FC = () => {
                   
                   {typingUsers.map(user => (
                     <GhostMessageBubble key={user.user} $isUser={user.user === anonymousId}>
-                      <MessageHeader>
-                        <ShapeName>
-                          {shapeNames[(user.userNumber - 1) % shapeNames.length]}
-                        </ShapeName>
-                        {Math.floor((user.userNumber - 1) / shapeNames.length) > 0 && (
-                          <LoopCount>
-                            {Math.floor((user.userNumber - 1) / shapeNames.length) + 1}
-                          </LoopCount>
-                        )}
-                      </MessageHeader>
+                      <MessageHeader 
+                        senderId={user.user}
+                        userNumber={user.userNumber}
+                      />
                       {user.content}
                     </GhostMessageBubble>
                   ))}
