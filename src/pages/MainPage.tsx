@@ -5,6 +5,7 @@ import logoSvg from '../assets/noun-spinning-top-753468.svg';
 import { supabase, checkSupabaseConnection } from '../lib/supabaseClient';
 import horseAnimation from '../assets/wired-outline-1531-rocking-horse-hover-pinch.webp';
 import { useMessageSound } from '../hooks/useMessageSound';
+import { User } from '@supabase/supabase-js';
 
 interface Message {
   id: string;
@@ -34,6 +35,11 @@ interface AnimatedTypingState {
   userNumber: number;
   content: string;
   lastUpdated: number;  // timestamp of last update
+}
+
+interface AuthButtonProps {
+  provider: 'github' | 'twitter';
+  isLoading?: boolean;
 }
 
 const shapeNames = [
@@ -146,6 +152,8 @@ const Header = styled.header`
   justify-content: space-between;
   padding: 1rem 2rem;
   position: relative;
+  z-index: 20;
+  background-color: transparent;
 `;
 
 const LogoContainer = styled.div`
@@ -231,7 +239,7 @@ const LoginButton = styled.button`
   //border-radius: 0.5rem;
   
   &:hover {
-    background-color: #f4f4f5;
+    background-color: #fff;
     color: #000;
   }
 `;
@@ -261,6 +269,8 @@ const MainContent = styled.main`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  z-index: 10;
 `;
 
 const ChatContainer = styled.div`
@@ -694,7 +704,120 @@ const GhostMessageBubble = styled(MessageBubble)`
 // Add this constant near the top with other constants
 const TYPING_TIMEOUT = 3000; // 3 seconds
 
+const AuthButtonContent = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+`;
+
+const AuthIcon = styled.svg`
+  width: 1.2rem;
+  height: 1.2rem;
+`;
+
+const LoadingSpinner = styled.div`
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #ffffff33;
+  border-top: 2px solid #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
+// Add type definition
+type AuthPopupOrigin = 'login' | 'signup' | null;
+
+// Add these styled components
+const AuthButtonsContainer = styled.div`
+  position: relative;
+  z-index: 1;
+`;
+
+// Add this interface
+interface ButtonPosition {
+  right: number;
+  width: number;
+}
+
+
+// Update AuthPopup styling
+const AuthPopup = styled.div<{ $isOpen: boolean; $buttonPosition: ButtonPosition | null }>`
+  position: absolute;
+  top: calc(100% + 0rem);
+  right: ${props => props.$buttonPosition ? `${props.$buttonPosition.right}px` : '0'};
+  background-color: #fff;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 200px;
+  transform-origin: top right;
+  transition: transform 0.1s ease-out;
+  opacity: ${props => props.$isOpen ? 1 : 0};
+  transform: ${props => props.$isOpen ? 'scale(1)' : 'scale(0.2)'};
+  pointer-events: ${props => props.$isOpen ? 'auto' : 'none'};
+`;
+
+const AuthPopupButton = styled.button`
+  padding: 0.75rem 1rem;
+  border: none;
+  background: #e4e4e4;
+  color: #000000;
+  font-family: 'DM Mono', monospace;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  
+  &:hover {
+    background-color: #ffffff;
+    color: #000;
+    outline: 1.5px solid #e4e4e4;
+    outline-offset: -1.5px;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+// Add this component for the auth buttons
+const AuthButton: React.FC<AuthButtonProps> = ({ provider, isLoading }) => {
+  const icons = {
+    github: (
+      <AuthIcon viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+      </AuthIcon>
+    ),
+    twitter: (
+      <AuthIcon viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+      </AuthIcon>
+    )
+  };
+
+  return (
+    <AuthButtonContent>
+      {isLoading ? <LoadingSpinner /> : icons[provider]}
+      <span>
+        {provider.charAt(0).toUpperCase() + provider.slice(1)}
+      </span>
+    </AuthButtonContent>
+  );
+};
+
 const MainPage: React.FC = () => {
+  // Add state inside component
+  const [authPopupOrigin, setAuthPopupOrigin] = useState<AuthPopupOrigin>(null);
+  
   const getInitialRoom = () => {
     const path = window.location.pathname;
     if (path === '/' || path === '') {
@@ -729,6 +852,13 @@ const MainPage: React.FC = () => {
   const [typingUsers, setTypingUsers] = useState<AnimatedTypingState[]>([]);
   const typingChannelRef = useRef<any>(null);
   const viewerChannelRef = useRef<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<{
+    github?: boolean;
+    twitter?: boolean;
+  }>({});
+  const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false);
+  const [buttonPosition, setButtonPosition] = useState<ButtonPosition | null>(null);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -1258,6 +1388,83 @@ const MainPage: React.FC = () => {
       });
   };
 
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (provider: 'github' | 'twitter') => {
+    try {
+      setIsAuthLoading(prev => ({ ...prev, [provider]: true }));
+      
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error(`Error signing in with ${provider}:`, error);
+    } finally {
+      setIsAuthLoading(prev => ({ ...prev, [provider]: false }));
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  // Add this effect to close popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isAuthPopupOpen) {
+        const popup = document.getElementById('auth-popup');
+        if (popup && !popup.contains(event.target as Node)) {
+          setIsAuthPopupOpen(false);
+          setAuthPopupOrigin(null);
+          setButtonPosition(null);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isAuthPopupOpen]);
+
+  const handleButtonClick = (buttonId: 'login' | 'signup') => (event: React.MouseEvent) => {
+    const button = event.currentTarget as HTMLElement;
+    const containerRect = button.parentElement?.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    
+    if (containerRect) {
+      setButtonPosition({
+        right: containerRect.right - buttonRect.right,
+        width: buttonRect.width
+      });
+    }
+    
+    setAuthPopupOrigin(buttonId);
+    setIsAuthPopupOpen(true);
+  };
+
   return (
     <PageContainer $bgColor={backgroundColor}>
       <Header>
@@ -1274,10 +1481,51 @@ const MainPage: React.FC = () => {
             placeholder="Enter a room..."
           />
         </NavigationContainer>
-        <AuthButtons>
-          <LoginButton><s>Log in</s></LoginButton>
-          <SignUpButton><s>Sign up</s></SignUpButton>
-        </AuthButtons>
+        <AuthButtonsContainer>
+          {user ? (
+            <>
+              <LoginButton onClick={handleSignOut}>
+                Sign out
+              </LoginButton>
+              <SignUpButton as="div">
+                {user.email || user.user_metadata.full_name || 'User'}
+              </SignUpButton>
+            </>
+          ) : (
+            <>
+              <LoginButton onClick={handleButtonClick('login')}>
+                Log in
+              </LoginButton>
+              <SignUpButton onClick={handleButtonClick('signup')}>
+                Sign up
+              </SignUpButton>
+              <AuthPopup 
+                id="auth-popup" 
+                $isOpen={isAuthPopupOpen}
+                $buttonPosition={buttonPosition}
+              >
+                <AuthPopupButton 
+                  onClick={() => handleAuth('github')}
+                  disabled={isAuthLoading.github}
+                >
+                  <AuthButton 
+                    provider="github" 
+                    isLoading={isAuthLoading.github} 
+                  />
+                </AuthPopupButton>
+                <AuthPopupButton 
+                  onClick={() => handleAuth('twitter')}
+                  disabled={isAuthLoading.twitter}
+                >
+                  <AuthButton 
+                    provider="twitter" 
+                    isLoading={isAuthLoading.twitter} 
+                  />
+                </AuthPopupButton>
+              </AuthPopup>
+            </>
+          )}
+        </AuthButtonsContainer>
       </Header>
       
       <MainContent>
