@@ -771,15 +771,24 @@ const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
 const MessageGroup = styled.div<{ $isUser: boolean }>`
   display: flex;
   flex-direction: column;
-  gap: 0.4em;
+  gap: 1.5px;
   max-width: 80%;
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
 `;
 
+// Add this helper function
+const roundUpToNearestEm = (width: number): number => {
+  const emInPixels = 16; // 1em is typically 16px
+  const roundTo = 2.4 * emInPixels; // Round to nearest 2em
+  return Math.ceil(width / roundTo) * roundTo;
+};
+
+// Update GroupedMessageBubble to use a ref and useEffect for width calculation
 const GroupedMessageBubble = styled(MessageBubble)<{ $isFirst?: boolean }>`
   max-width: 100%;
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
   text-align: left;
+  width: var(--rounded-width, auto); // Use CSS variable for width
   
   ${MessageHeader} {
     justify-content: flex-start;
@@ -798,6 +807,43 @@ const GroupedMessageBubble = styled(MessageBubble)<{ $isFirst?: boolean }>`
     padding-bottom: 0.65rem;
   `}
 `;
+
+// Update the message rendering to include width calculation
+const MessageBubbleWithWidth: React.FC<{
+  message: Message;
+  isUser: boolean;
+  isFirst: boolean;
+}> = ({ message, isUser, isFirst }) => {
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (bubbleRef.current) {
+      const width = bubbleRef.current.getBoundingClientRect().width;
+      const roundedWidth = roundUpToNearestEm(width);
+      bubbleRef.current.style.setProperty('--rounded-width', `${roundedWidth}px`);
+    }
+  }, [message.content]); // Recalculate when content changes
+
+  return (
+    <GroupedMessageBubble
+      ref={bubbleRef}
+      $isUser={isUser}
+      $isFirst={isFirst}
+    >
+      <MessageHeader>
+        <ShapeName>
+          {shapeNames[(message.user_number - 1) % shapeNames.length]}
+        </ShapeName>
+        {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+          <LoopCount>
+            {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+          </LoopCount>
+        )}
+      </MessageHeader>
+      {message.content}
+    </GroupedMessageBubble>
+  );
+};
 
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
@@ -1517,23 +1563,12 @@ const MainPage: React.FC = () => {
       return (
         <MessageGroup key={`group-${groupIndex}`} $isUser={isUser}>
           {group.map((message, messageIndex) => (
-            <GroupedMessageBubble
+            <MessageBubbleWithWidth
               key={message.id}
-              $isUser={isUser}
-              $isFirst={messageIndex === 0}
-            >
-              <MessageHeader>
-                <ShapeName>
-                  {shapeNames[(message.user_number - 1) % shapeNames.length]}
-                </ShapeName>
-                {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
-                  <LoopCount>
-                    {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
-                  </LoopCount>
-                )}
-              </MessageHeader>
-              {message.content}
-            </GroupedMessageBubble>
+              message={message}
+              isUser={isUser}
+              isFirst={messageIndex === 0}
+            />
           ))}
         </MessageGroup>
       );
