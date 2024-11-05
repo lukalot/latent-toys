@@ -315,6 +315,7 @@ const MessageContainer = styled.div`
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   flex: 1;
+  min-height: 0;
   padding: 0rem;
   padding-bottom: 1rem;
   padding-top: 1rem;
@@ -729,6 +730,18 @@ const GhostMessageBubble = styled(MessageBubble)`
 // Add this constant near the top with other constants
 const TYPING_TIMEOUT = 3000; // 3 seconds
 
+const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  
+  @media (max-width: 700px) {
+    margin-bottom: ${props => props.$keyboardHeight}px;
+    transition: margin-bottom 0.1s ease-out;
+  }
+`;
+
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
     const path = window.location.pathname;
@@ -764,6 +777,7 @@ const MainPage: React.FC = () => {
   const [typingUsers, setTypingUsers] = useState<AnimatedTypingState[]>([]);
   const typingChannelRef = useRef<any>(null);
   const viewerChannelRef = useRef<any>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // Add back local ghost tracking
   const [localGhostMessage, setLocalGhostMessage] = useState<{
@@ -1307,6 +1321,25 @@ const MainPage: React.FC = () => {
       });
   };
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    
+    if (!viewport) return;
+
+    const handleResize = () => {
+      const currentHeight = window.innerHeight - viewport.height;
+      setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
+    };
+
+    viewport.addEventListener('resize', handleResize);
+    viewport.addEventListener('scroll', handleResize);
+
+    return () => {
+      viewport.removeEventListener('resize', handleResize);
+      viewport.removeEventListener('scroll', handleResize);
+    };
+  }, []);
+
   return (
     <PageContainer $bgColor={backgroundColor}>
       <Header>
@@ -1337,102 +1370,104 @@ const MainPage: React.FC = () => {
           </PlaceholderContainer>
         ) : (
           <ChatContainer>
-            <ChatHeader>
-              <ChatTitle>{navigationTitle}</ChatTitle>
-              <ViewerCount>
-                {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
-              </ViewerCount>
-            </ChatHeader>
-            <MessageContainer 
-              ref={messageContainerRef}
-              onScroll={handleScroll}
-            >
-              {isLoadingMore && (
-                <LoadingIndicator>Loading more messages...</LoadingIndicator>
-              )}
-              {messages.length > 0 ? (
-                <>
-                  {messages.map((message) => (
-                    message.type === 'join' ? (
-                      <JoinMessage key={message.id}>
-                        {message.content}
-                      </JoinMessage>
-                    ) : (
-                      <MessageBubble 
-                        key={message.id}
-                        $isUser={message.sender_id === anonymousId}
-                      >
-                        <MessageHeader>
-                          <ShapeName>
-                            {shapeNames[(message.user_number - 1) % shapeNames.length]}
-                          </ShapeName>
-                          {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
-                            <LoopCount>
-                              {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
-                            </LoopCount>
-                          )}
-                        </MessageHeader>
-                        {message.content}
-                      </MessageBubble>
-                    )
-                  ))}
-                  
-                  {/* Render all ghost messages sorted by content length */}
-                  {[
-                    ...typingUsers
-                      .filter(user => user.user !== anonymousId)
-                      .map(user => ({
-                        isLocal: false,
-                        content: user.content,
-                        userNumber: user.userNumber,
-                        user: user.user
-                      })),
-                    ...(localGhostMessage ? [{
-                      isLocal: true,
-                      content: localGhostMessage.content,
-                      userNumber: getCurrentUserNumber(),
-                      user: anonymousId
-                    }] : [])
-                  ]
-                    .sort((a, b) => b.content.length - a.content.length) // Sort by content length, longest first
-                    .map(ghost => (
-                      <GhostMessageBubble key={ghost.user} $isUser={ghost.isLocal}>
-                        <MessageHeader>
-                          <ShapeName>
-                            {shapeNames[(ghost.userNumber - 1) % shapeNames.length]}
-                          </ShapeName>
-                          {Math.floor((ghost.userNumber - 1) / shapeNames.length) > 0 && (
-                            <LoopCount>
-                              {Math.floor((ghost.userNumber - 1) / shapeNames.length) + 1}
-                            </LoopCount>
-                          )}
-                        </MessageHeader>
-                        {ghost.content}
-                      </GhostMessageBubble>
+            <KeyboardAwareContainer $keyboardHeight={keyboardHeight}>
+              <ChatHeader>
+                <ChatTitle>{navigationTitle}</ChatTitle>
+                <ViewerCount>
+                  {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
+                </ViewerCount>
+              </ChatHeader>
+              <MessageContainer 
+                ref={messageContainerRef}
+                onScroll={handleScroll}
+              >
+                {isLoadingMore && (
+                  <LoadingIndicator>Loading more messages...</LoadingIndicator>
+                )}
+                {messages.length > 0 ? (
+                  <>
+                    {messages.map((message) => (
+                      message.type === 'join' ? (
+                        <JoinMessage key={message.id}>
+                          {message.content}
+                        </JoinMessage>
+                      ) : (
+                        <MessageBubble 
+                          key={message.id}
+                          $isUser={message.sender_id === anonymousId}
+                        >
+                          <MessageHeader>
+                            <ShapeName>
+                              {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                            </ShapeName>
+                            {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                              <LoopCount>
+                                {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                              </LoopCount>
+                            )}
+                          </MessageHeader>
+                          {message.content}
+                        </MessageBubble>
+                      )
                     ))}
-                </>
-              ) : (
-                <EmptyStateContainer>
-                  <EmptyStateImage 
-                    src={horseAnimation} 
-                    alt="Rocking horse animation"
-                  />
-                  <EmptyStateText>
-                    you found a latent.toy<br />
-                    send a message
-                  </EmptyStateText>
-                </EmptyStateContainer>
-              )}
-            </MessageContainer>
-            <InputContainer onSubmit={handleSubmitMessage}>
-              <MessageInput
-                value={newMessage}
-                onChange={autoResizeTextArea}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your message..."
-                rows={1}
-              />
-            </InputContainer>
+                    
+                    {/* Render all ghost messages sorted by content length */}
+                    {[
+                      ...typingUsers
+                        .filter(user => user.user !== anonymousId)
+                        .map(user => ({
+                          isLocal: false,
+                          content: user.content,
+                          userNumber: user.userNumber,
+                          user: user.user
+                        })),
+                      ...(localGhostMessage ? [{
+                        isLocal: true,
+                        content: localGhostMessage.content,
+                        userNumber: getCurrentUserNumber(),
+                        user: anonymousId
+                      }] : [])
+                    ]
+                      .sort((a, b) => b.content.length - a.content.length) // Sort by content length, longest first
+                      .map(ghost => (
+                        <GhostMessageBubble key={ghost.user} $isUser={ghost.isLocal}>
+                          <MessageHeader>
+                            <ShapeName>
+                              {shapeNames[(ghost.userNumber - 1) % shapeNames.length]}
+                            </ShapeName>
+                            {Math.floor((ghost.userNumber - 1) / shapeNames.length) > 0 && (
+                              <LoopCount>
+                                {Math.floor((ghost.userNumber - 1) / shapeNames.length) + 1}
+                              </LoopCount>
+                            )}
+                          </MessageHeader>
+                          {ghost.content}
+                        </GhostMessageBubble>
+                      ))}
+                  </>
+                ) : (
+                  <EmptyStateContainer>
+                    <EmptyStateImage 
+                      src={horseAnimation} 
+                      alt="Rocking horse animation"
+                    />
+                    <EmptyStateText>
+                      you found a latent.toy<br />
+                      send a message
+                    </EmptyStateText>
+                  </EmptyStateContainer>
+                )}
+              </MessageContainer>
+              <InputContainer onSubmit={handleSubmitMessage}>
+                <MessageInput
+                  value={newMessage}
+                  onChange={autoResizeTextArea}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type your message..."
+                  rows={1}
+                />
+              </InputContainer>
+            </KeyboardAwareContainer>
           </ChatContainer>
         )}
       </MainContent>
