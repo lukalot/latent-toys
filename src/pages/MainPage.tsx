@@ -610,10 +610,29 @@ const MenuText = styled.div`
   opacity: 0.7;
 `;
 
+const sanitizeRoomName = (name: string): string => {
+  return name
+    .replace(/\s/g, '_')
+    .replace(/\//g, '÷')
+    .replace(/\*/g, '×')
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]/g, '');
+};
+
 const MainPage: React.FC = () => {
+  const getInitialRoom = () => {
+    const path = window.location.pathname;
+    if (path.startsWith('/t/')) {
+      const room = path.slice(3); // Remove '/t/'
+      const sanitized = sanitizeRoomName(room);
+      return sanitized || 'main';
+    }
+    return 'main';
+  };
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [navigationTitle, setNavigationTitle] = useState('main');
+  const [navigationTitle, setNavigationTitle] = useState(getInitialRoom());
   const backgroundColor = stringToColor(navigationTitle);
   const [anonymousId] = useState(() => crypto.randomUUID());
   const messageContainerRef = useRef<HTMLDivElement>(null);
@@ -628,6 +647,7 @@ const MainPage: React.FC = () => {
   const [hasTyped, setHasTyped] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [hasEditedRoom, setHasEditedRoom] = useState(false);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -820,17 +840,9 @@ const MainPage: React.FC = () => {
   };
 
   const handleNavigationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // First replace spaces with underscores
-    let value = e.target.value;
-        value = value.replace(/\s/g, '_');
-        value = value.replace(/\//g, '÷');
-        value = value.replace(/\*/g, '×');
-        value = value.toLowerCase();
-    
-    // Then filter out any disallowed characters
-    value = value.replace(/[^a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]/g, '');
-    
+    const value = sanitizeRoomName(e.target.value);
     setNavigationTitle(value);
+    setHasEditedRoom(true);
   };
 
   const scrollToBottom = (force = false) => {
@@ -952,6 +964,27 @@ const MainPage: React.FC = () => {
       }
     }
   };
+
+  // Add effect to update URL when room changes
+  useEffect(() => {
+    if (hasEditedRoom || window.location.pathname !== '/') {
+      const newPath = `/t/${navigationTitle}`;
+      if (window.location.pathname !== newPath) {
+        window.history.pushState({}, '', newPath);
+      }
+    }
+  }, [navigationTitle, hasEditedRoom]);
+
+  // Add effect to handle browser back/forward
+  useEffect(() => {
+    const handlePopState = () => {
+      const newRoom = getInitialRoom();
+      setNavigationTitle(newRoom);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   return (
     <PageContainer $bgColor={backgroundColor}>
