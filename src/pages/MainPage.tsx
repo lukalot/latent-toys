@@ -767,6 +767,38 @@ const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
   }
 `;
 
+// Add these new styled components after the existing MessageBubble component
+const MessageGroup = styled.div<{ $isUser: boolean }>`
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  max-width: 80%;
+  align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
+`;
+
+const GroupedMessageBubble = styled(MessageBubble)<{ $isFirst?: boolean }>`
+  max-width: 100%;
+  align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
+  text-align: left;
+  
+  ${MessageHeader} {
+    justify-content: flex-start;
+  }
+  
+  /* Only show header for first message in group */
+  ${props => !props.$isFirst && `
+    ${MessageHeader} {
+      display: none;
+    }
+  `}
+  
+  /* Adjust padding for consecutive messages */
+  ${props => !props.$isFirst && `
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  `}
+`;
+
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
     const path = window.location.pathname;
@@ -1432,6 +1464,83 @@ const MainPage: React.FC = () => {
     };
   }, []);
 
+  // Add this helper function before the return statement
+  const renderMessages = () => {
+    let currentGroup: Message[] = [];
+    const messageGroups: Message[][] = [];
+    
+    messages.forEach((message, index) => {
+      if (message.type === 'join') {
+        // Flush current group if any
+        if (currentGroup.length > 0) {
+          messageGroups.push([...currentGroup]);
+          currentGroup = [];
+        }
+        // Add join message as its own group
+        messageGroups.push([message]);
+      } else if (
+        currentGroup.length > 0 && 
+        currentGroup[0].sender_id === message.sender_id &&
+        // Optional: Check if messages are within 2 minutes of each other
+        Math.abs(new Date(currentGroup[currentGroup.length - 1].created_at).getTime() - 
+                new Date(message.created_at).getTime()) < 120000
+      ) {
+        // Add to current group if same sender
+        currentGroup.push(message);
+      } else {
+        // Flush current group if any and start new one
+        if (currentGroup.length > 0) {
+          messageGroups.push([...currentGroup]);
+        }
+        currentGroup = [message];
+      }
+    });
+    
+    // Add last group
+    if (currentGroup.length > 0) {
+      messageGroups.push(currentGroup);
+    }
+
+    return messageGroups.map((group, groupIndex) => {
+      const firstMessage = group[0];
+      
+      if (firstMessage.type === 'join') {
+        return (
+          <JoinMessage key={firstMessage.id}>
+            {firstMessage.content}
+          </JoinMessage>
+        );
+      }
+
+      const isUser = firstMessage.sender_id === anonymousId;
+      
+      return (
+        <MessageGroup key={`group-${groupIndex}`} $isUser={isUser}>
+          {group.map((message, messageIndex) => (
+            <GroupedMessageBubble
+              key={message.id}
+              $isUser={isUser}
+              $isFirst={messageIndex === 0}
+            >
+              <MessageHeader>
+                <ShapeName>
+                  {shapeNames[(message.user_number - 1) % shapeNames.length]}
+                </ShapeName>
+                {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
+                  <LoopCount>
+                    {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
+                  </LoopCount>
+                )}
+              </MessageHeader>
+              {message.content}
+            </GroupedMessageBubble>
+          ))}
+        </MessageGroup>
+      );
+    });
+  };
+
+  // Update the messages rendering in the MessageContainer
   return (
     <PageContainer $bgColor={backgroundColor}>
       <Header>
@@ -1478,32 +1587,9 @@ const MainPage: React.FC = () => {
                 )}
                 {messages.length > 0 ? (
                   <>
-                    {messages.map((message) => (
-                      message.type === 'join' ? (
-                        <JoinMessage key={message.id}>
-                          {message.content}
-                        </JoinMessage>
-                      ) : (
-                        <MessageBubble 
-                          key={message.id}
-                          $isUser={message.sender_id === anonymousId}
-                        >
-                          <MessageHeader>
-                            <ShapeName>
-                              {shapeNames[(message.user_number - 1) % shapeNames.length]}
-                            </ShapeName>
-                            {Math.floor((message.user_number - 1) / shapeNames.length) > 0 && (
-                              <LoopCount>
-                                {Math.floor((message.user_number - 1) / shapeNames.length) + 1}
-                              </LoopCount>
-                            )}
-                          </MessageHeader>
-                          {message.content}
-                        </MessageBubble>
-                      )
-                    ))}
+                    {renderMessages()}
                     
-                    {/* Render all ghost messages sorted by content length */}
+                    {/* Ghost messages remain unchanged */}
                     {[
                       ...typingUsers
                         .filter(user => user.user !== anonymousId)
@@ -1520,7 +1606,7 @@ const MainPage: React.FC = () => {
                         user: anonymousId
                       }] : [])
                     ]
-                      .sort((a, b) => b.content.length - a.content.length) // Sort by content length, longest first
+                      .sort((a, b) => b.content.length - a.content.length)
                       .map(ghost => (
                         <GhostMessageBubble key={ghost.user} $isUser={ghost.isLocal}>
                           <MessageHeader>
