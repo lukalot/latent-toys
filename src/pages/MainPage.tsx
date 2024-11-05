@@ -15,6 +15,7 @@ interface Message {
   room_id: string;
   local?: boolean;
   type?: 'join' | 'message';
+  style?: { [key: string]: string };
 }
 
 interface RoomUserNumber {
@@ -1386,7 +1387,7 @@ const MainPage: React.FC = () => {
       const serverMessage = {
         ...payload.new,
         style: { '--rounded-width': `${width}px` }
-      };
+      } as Message;
       
       return current
         .filter(msg => 
