@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import styled from 'styled-components';
 import halftonePattern from '../assets/untitled.png';
 import logoSvg from '../assets/noun-spinning-top-753468.svg';
@@ -755,9 +755,6 @@ const GhostMessageBubble = styled(MessageBubble)`
   }
 `;
 
-// Add this constant near the top with other constants
-const TYPING_TIMEOUT = 3000; // 3 seconds
-
 const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
   display: flex;
   flex-direction: column;
@@ -818,6 +815,7 @@ const MarkdownContent = styled.div`
   p {
     margin: 0;
     white-space: pre-wrap;
+    display: inline; // Keep this to maintain inline paragraphs
   }
 
   /* Links */
@@ -825,6 +823,8 @@ const MarkdownContent = styled.div`
     color: inherit;
     text-decoration: underline;
     text-decoration-style: dotted;
+    display: inline-block; // Change from inline to inline-block
+    white-space: nowrap; // Add this to prevent wrapping within links
     
     &:hover {
       opacity: 0.8;
@@ -867,12 +867,134 @@ const MarkdownContent = styled.div`
   }
 `;
 
-// Update MessageBubbleWithWidth to disable headings
-const MessageBubbleWithWidth: React.FC<{
+const createRoomLinkPlugin = () => {
+  const ROOM_PATTERN = /\b(t\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+)\b/g;
+  
+  return () => (tree: any) => {
+    
+    const visitNode = (node: any, depth: number = 0): void => {
+      if (depth > 10) return;
+      
+      // Debug log
+      console.log('Visiting node:', {
+        type: node.type,
+        value: node.value,
+        children: node.children
+      });
+      
+      if (node.type === 'text' && typeof node.value === 'string') {
+        const parts = [];
+        let lastIndex = 0;
+        let match;
+        
+        ROOM_PATTERN.lastIndex = 0;
+        while ((match = ROOM_PATTERN.exec(node.value)) !== null) {
+          // Add text before the match
+          if (match.index > lastIndex) {
+            parts.push({
+              type: 'text',
+              value: node.value.slice(lastIndex, match.index)
+            });
+          }
+          
+          // Add the room link
+          parts.push({
+            type: 'link',
+            url: `/${match[1]}`,
+            children: [{
+              type: 'text',
+              value: match[1]
+            }]
+          });
+          
+          lastIndex = match.index + match[1].length;
+        }
+        
+        // Add remaining text
+        if (lastIndex < node.value.length) {
+          parts.push({
+            type: 'text',
+            value: node.value.slice(lastIndex)
+          });
+        }
+        
+        if (parts.length > 0) {
+          // Instead of modifying the node directly, return the parts
+          return parts;
+        }
+      }
+      
+      if (node.children) {
+        const newChildren = [];
+        for (const child of node.children) {
+          const result = visitNode(child, depth + 1);
+          if (Array.isArray(result)) {
+            newChildren.push(...result);
+          } else if (result) {
+            newChildren.push(result);
+          } else {
+            newChildren.push(child);
+          }
+        }
+        node.children = newChildren;
+      }
+      
+      return node;
+    };
+
+    const result = visitNode(tree);
+    return result;
+  };
+};
+
+const RoomLink = React.memo<{
+  href: string;
+  children: React.ReactNode;
+  onNavigate: (roomName: string) => void;
+}>(({ href, children, onNavigate }) => {
+  const isRoomLink = href?.startsWith('/t/');
+  
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isRoomLink && href) {
+      const roomName = href.slice(3); // Remove '/t/'
+      onNavigate(sanitizeRoomName(roomName));
+      window.history.pushState({}, '', href);
+    } else {
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
+  }, [href, isRoomLink, onNavigate]);
+  
+  return (
+    <a 
+      href={href}
+      onClick={handleClick}
+      style={{
+        cursor: 'pointer',
+        textDecoration: isRoomLink ? 'none' : 'underline',
+        background: isRoomLink ? '#000' : 'transparent',
+        borderRadius: '4em',
+        padding: '0.1em 0.6em',
+        color: 'white',
+        fontFamily: 'DM Mono',
+        fontSize: '0.9em'
+      }}
+    >
+      {children}
+    </a>
+  );
+});
+
+// Add display name
+RoomLink.displayName = 'RoomLink';
+
+// Update the MessageBubbleWithWidth component to be more efficient
+const MessageBubbleWithWidth = React.memo<{
   message: Message;
   isUser: boolean;
   isFirst: boolean;
-}> = ({ message, isUser, isFirst }) => {
+  onNavigate: (roomName: string) => void;
+}>(({ message, isUser, isFirst, onNavigate }) => {
   const bubbleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -882,6 +1004,28 @@ const MessageBubbleWithWidth: React.FC<{
       bubbleRef.current.style.setProperty('--rounded-width', `${roundedWidth}px`);
     }
   }, [message.content, message.style]);
+
+  // Memoize the markdown plugins
+  const remarkPlugins = useMemo(() => [
+    [() => (tree: any) => {
+      tree.children.forEach((node: any) => {
+        if (node.type === 'heading') {
+          node.type = 'paragraph';
+        }
+      });
+      return tree;
+    }],
+    createRoomLinkPlugin()
+  ], []);
+
+  // Memoize the markdown components
+  const markdownComponents = useMemo(() => ({
+    a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
+      <RoomLink href={href || ''} onNavigate={onNavigate}>
+        {children}
+      </RoomLink>
+    )
+  }), [onNavigate]);
 
   return (
     <GroupedMessageBubble
@@ -902,22 +1046,23 @@ const MessageBubbleWithWidth: React.FC<{
       </MessageHeader>
       <MarkdownContent>
         <ReactMarkdown 
-          remarkPlugins={[
-            [() => (tree: any) => {
-              tree.children.forEach((node: any) => {
-                if (node.type === 'heading') {
-                  node.type = 'paragraph';
-                }
-              });
-            }]
-          ]}
+          remarkPlugins={remarkPlugins}
+          components={markdownComponents}
         >
           {message.content}
         </ReactMarkdown>
       </MarkdownContent>
     </GroupedMessageBubble>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function for memo
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.isUser === nextProps.isUser &&
+    prevProps.isFirst === nextProps.isFirst
+  );
+});
 
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
@@ -1698,6 +1843,7 @@ const MainPage: React.FC = () => {
               message={message}
               isUser={isUser}
               isFirst={messageIndex === 0}
+              onNavigate={setNavigationTitle}
             />
           ))}
         </MessageGroup>
@@ -1793,8 +1939,16 @@ const MainPage: React.FC = () => {
                                       node.type = 'paragraph';
                                     }
                                   });
-                                }]
+                                }],
+                                createRoomLinkPlugin()
                               ]}
+                              components={{
+                                a: ({ href, children }) => (
+                                  <RoomLink href={href || ''} onNavigate={setNavigationTitle}>
+                                    {children}
+                                  </RoomLink>
+                                )
+                              }}
                             >
                               {ghost.content}
                             </ReactMarkdown>
