@@ -1842,45 +1842,6 @@ const MainPage: React.FC = () => {
     };
   }, []);
 
-  const handleInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
-    e.preventDefault();
-    
-    // Prevent scroll in multiple ways
-    window.scrollTo(0, 0);
-    document.body.scrollTop = 0;
-    document.documentElement.scrollTop = 0;
-    
-    // Force the page to stay at top after a small delay
-    setTimeout(() => {
-      window.scrollTo(0, 0);
-      document.body.scrollTop = 0;
-      document.documentElement.scrollTop = 0;
-    }, 50);
-  };
-
-  // Add a new effect to prevent scroll
-  useEffect(() => {
-    const preventScroll = (e: Event) => {
-      if (document.activeElement?.tagName === 'TEXTAREA') {
-        e.preventDefault();
-        window.scrollTo(0, 0);
-      }
-    };
-
-    // Prevent scroll on multiple events
-    window.addEventListener('scroll', preventScroll, { passive: false });
-    window.addEventListener('touchmove', preventScroll, { passive: false });
-    document.addEventListener('scroll', preventScroll, { passive: false });
-    document.body.addEventListener('scroll', preventScroll, { passive: false });
-
-    return () => {
-      window.removeEventListener('scroll', preventScroll);
-      window.removeEventListener('touchmove', preventScroll);
-      document.removeEventListener('scroll', preventScroll);
-      document.body.removeEventListener('scroll', preventScroll);
-    };
-  }, []);
-
   // Update the renderMessages function to handle ghost messages correctly
   const renderMessages = () => {
     let currentGroup: Message[] = [];
@@ -2075,7 +2036,6 @@ const MainPage: React.FC = () => {
                   value={newMessage}
                   onChange={autoResizeTextArea}
                   onKeyDown={handleKeyDown}
-                  onFocus={handleInputFocus}
                   placeholder="Type your message..."
                   rows={1}
                 />
