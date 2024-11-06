@@ -299,7 +299,8 @@ const ChatContainer = styled.div`
   min-height: 0;
 
   @media (max-width: 700px) {
-    padding: 1.3rem;
+    padding: 0.6rem;
+    padding-bottom: 2rem;
     padding-top: 0.6rem;
     box-shadow: none;
   }
@@ -511,7 +512,7 @@ const ViewerCount = styled.div`
   color: #666;
   font-family: 'DM Mono', monospace;
   padding-right: 0.2rem;
-  padding-top: 0.1rem;
+  padding-top: 0.4rem;
 `;
 
 const JoinMessage = styled.div<{ $isUser: boolean }>`
