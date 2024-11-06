@@ -1084,6 +1084,7 @@ const FlatListContainer = styled.div`
   padding-bottom: 1rem;
   padding-top: 1rem;
   scrollbar-width: none;
+  overflow-x: hidden;
   -ms-overflow-style: none;
 
   @media (max-width: 700px) {
