@@ -778,14 +778,15 @@ const MessageGroup = styled.div<{ $isUser: boolean }>`
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
 `;
 
-// Add this helper function
-const roundUpToNearestEm = (width: number): number => {
+// Update the roundUpToNearestEm function to conditionally add padding
+const roundUpToNearestEm = (width: number, hasLinks: boolean): number => {
   const emInPixels = 16; // 1em is typically 16px
-  const roundTo = 2.4 * emInPixels; // Round to nearest 2em
-  return Math.ceil(width / roundTo) * roundTo;
+  const roundTo = 2.4 * emInPixels; // Round to nearest 2.4em
+  const extraPadding = hasLinks ? 0 * emInPixels : 0; // Only add padding if there are links
+  return Math.ceil((width + extraPadding) / roundTo) * roundTo;
 };
 
-// Update GroupedMessageBubble to use a ref and useEffect for width calculation
+// Update the GroupedMessageBubble to use a ref and useEffect for width calculation
 const GroupedMessageBubble = styled(MessageBubble)<{ $isFirst?: boolean }>`
   max-width: 100%;
   align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
@@ -868,7 +869,7 @@ const MarkdownContent = styled.div`
   }
 `;
 
-// Update the createRoomLinkPlugin function with proper types
+// Update the createRoomLinkPlugin function to add a class to room links
 const createRoomLinkPlugin = () => {
   const ROOM_PATTERN = /\b(t\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+)\b/g;
   
@@ -891,6 +892,7 @@ const createRoomLinkPlugin = () => {
           parts.push({
             type: 'link',
             url: `/${match[1]}`,
+            data: { roomLink: true }, // Add this to mark room links
             children: [{
               type: 'text',
               value: match[1]
@@ -949,7 +951,7 @@ const NavigationProvider: React.FC<{
   );
 };
 
-// Update the RoomLink component to use context
+// Update the RoomLink component styling
 const RoomLink: Components['a'] = ({ href, children, ...props }) => {
   const navigate = React.useContext(NavigationContext);
   const isRoomLink = href?.startsWith('/t/');
@@ -957,7 +959,7 @@ const RoomLink: Components['a'] = ({ href, children, ...props }) => {
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     if (isRoomLink && href && navigate) {
-      const roomName = href.slice(3); // Remove '/t/'
+      const roomName = href.slice(3);
       navigate(sanitizeRoomName(roomName));
       window.history.pushState({}, '', href);
     } else {
@@ -970,15 +972,20 @@ const RoomLink: Components['a'] = ({ href, children, ...props }) => {
       href={href}
       onClick={handleClick}
       {...props}
+      className={isRoomLink ? 'room-link' : undefined}
       style={{
         cursor: 'pointer',
         textDecoration: isRoomLink ? 'none' : 'underline',
         background: isRoomLink ? '#000' : 'transparent',
         borderRadius: '4em',
         padding: '0.1em 0.6em',
+        margin: '0 0.1em', // Add small margin between links
         color: 'white',
         fontFamily: 'DM Mono',
-        fontSize: '0.9em'
+        fontSize: '0.9em',
+        display: 'inline-block',
+        verticalAlign: 'middle', // Align with text
+        ...(props.style || {})
       }}
     >
       {children}
@@ -986,7 +993,7 @@ const RoomLink: Components['a'] = ({ href, children, ...props }) => {
   );
 };
 
-// Update MessageBubbleWithWidth to use NavigationProvider
+// Update the MessageBubbleWithWidth measurement logic
 const MessageBubbleWithWidth = React.memo<{
   message: Message;
   isUser: boolean;
@@ -997,11 +1004,51 @@ const MessageBubbleWithWidth = React.memo<{
 
   useEffect(() => {
     if (bubbleRef.current && !message.style) {
-      const width = bubbleRef.current.getBoundingClientRect().width;
-      const roundedWidth = roundUpToNearestEm(width);
-      bubbleRef.current.style.setProperty('--rounded-width', `${roundedWidth}px`);
+      // Create a temporary container for measurement
+      const measureDiv = document.createElement('div');
+      measureDiv.style.cssText = `
+        position: absolute;
+        visibility: hidden;
+        padding: 0.65rem 0.9rem;
+        max-width: 80%;
+        font-family: inherit;
+        font-size: inherit;
+        white-space: pre-wrap;
+      `;
+      
+      // Create header content
+      const headerDiv = document.createElement('div');
+      headerDiv.style.cssText = `
+        font-size: 0.8rem;
+        font-family: 'DM Mono', monospace;
+        margin-bottom: 0.2rem;
+      `;
+      const shapeName = shapeNames[(message.user_number - 1) % shapeNames.length];
+      const loopCount = Math.floor((message.user_number - 1) / shapeNames.length) + 1;
+      headerDiv.textContent = loopCount > 1 ? `${shapeName} ${loopCount}` : shapeName;
+      
+      // Check if content contains any room links
+      const hasLinks = /\bt\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+\b/.test(message.content);
+      
+      // Add content with room link styling
+      const contentDiv = document.createElement('div');
+      contentDiv.innerHTML = message.content.replace(
+        /\b(t\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+)\b/g,
+        '<span class="room-link" style="padding: 0.1em 0.6em; margin: 0 0.1em; display: inline-block; background: #000; border-radius: 4em; font-family: DM Mono; font-size: 0.9em;">$1</span>'
+      );
+      
+      measureDiv.appendChild(headerDiv);
+      measureDiv.appendChild(contentDiv);
+      document.body.appendChild(measureDiv);
+      
+      // Get the width including any room links
+      const naturalWidth = measureDiv.getBoundingClientRect().width;
+      const width = roundUpToNearestEm(naturalWidth, hasLinks);
+      
+      document.body.removeChild(measureDiv);
+      bubbleRef.current.style.setProperty('--rounded-width', `${width}px`);
     }
-  }, [message.content, message.style]);
+  }, [message.content, message.style, message.user_number]);
 
   return (
     <GroupedMessageBubble
@@ -1547,7 +1594,7 @@ const MainPage: React.FC = () => {
       current.filter(user => user.user !== payload.new.sender_id)
     );
 
-    // Pre-calculate width using a temporary div that includes the header
+    // Create a temporary container for measurement
     const measureDiv = document.createElement('div');
     measureDiv.style.cssText = `
       position: absolute;
@@ -1556,9 +1603,10 @@ const MainPage: React.FC = () => {
       max-width: 80%;
       font-family: inherit;
       font-size: inherit;
+      white-space: pre-wrap;
     `;
     
-    // Create and append header content
+    // Create header content
     const headerDiv = document.createElement('div');
     headerDiv.style.cssText = `
       font-size: 0.8rem;
@@ -1569,16 +1617,26 @@ const MainPage: React.FC = () => {
     const loopCount = Math.floor((payload.new.user_number - 1) / shapeNames.length) + 1;
     headerDiv.textContent = loopCount > 1 ? `${shapeName} ${loopCount}` : shapeName;
     
-    // Add both header and content
+    // Check if content contains any room links
+    const hasLinks = /\bt\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+\b/.test(payload.new.content);
+    
+    // Add content with room link styling
+    const contentDiv = document.createElement('div');
+    contentDiv.innerHTML = payload.new.content.replace(
+      /\b(t\/[a-zA-Z0-9\u0400-\u04FF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\u0080-\u024F'?!&@\-~+%$#^*÷=:;_]+)\b/g,
+      '<span class="room-link" style="padding: 0.1em 0.6em; margin: 0 0.1em; display: inline-block; background: #000; border-radius: 4em; font-family: DM Mono; font-size: 0.9em;">$1</span>'
+    );
+    
     measureDiv.appendChild(headerDiv);
-    measureDiv.appendChild(document.createTextNode(payload.new.content));
+    measureDiv.appendChild(contentDiv);
     document.body.appendChild(measureDiv);
     
-    // Get the width and round up to nearest em
+    // Get the width including any room links
     const naturalWidth = measureDiv.getBoundingClientRect().width;
-    const width = roundUpToNearestEm(Math.ceil(naturalWidth));
-    document.body.removeChild(measureDiv);
+    const width = roundUpToNearestEm(naturalWidth, hasLinks);
     
+    document.body.removeChild(measureDiv);
+
     // Add the server message with pre-calculated width
     setMessages(current => {
       const serverMessage = {
