@@ -281,7 +281,7 @@ const MainContent = styled.main`
   min-height: 0;
 
   @media (max-width: 700px) {
-    padding: 0;
+    padding: 0rem;
     padding-top: 0.3rem;
   }
 `;
@@ -299,7 +299,7 @@ const ChatContainer = styled.div`
   min-height: 0;
 
   @media (max-width: 700px) {
-    padding: 0.6rem;
+    padding: 0.9rem;
     padding-bottom: 2rem;
     padding-top: 0.6rem;
     box-shadow: none;
@@ -316,41 +316,6 @@ const ChatTitle = styled.h1`
 
   @media (max-width: 700px) {
     font-size: 2rem;
-  }
-`;
-
-const MessageContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  flex: 1;
-  min-height: 0;
-  padding: 0rem;
-  padding-bottom: 1rem;
-  padding-top: 1rem;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-
-  @media (max-width: 700px) {
-    flex: 1;
-    height: 0; // Force it to shrink
-  }
-
-  /* Custom scrollbar styling */
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: #1a1a1a;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: #333;
-    border-radius: 4px;
   }
 `;
 
@@ -1123,6 +1088,7 @@ const FlatListContainer = styled.div`
 
   @media (max-width: 700px) {
     flex: 1;
+    gap: 0.9rem;
     height: 0; // Force it to shrink
   }
 
