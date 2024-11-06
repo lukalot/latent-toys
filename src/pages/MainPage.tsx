@@ -491,6 +491,7 @@ const LoadingIndicator = styled.div`
   color: #666;
   font-size: 0.9rem;
   font-family: 'DM Mono', monospace;
+  order: 1; // This will push it to the end of the flex container
 `;
 
 const ChatHeader = styled.div`
@@ -1093,10 +1094,10 @@ const MessageBubbleWithWidth = React.memo<{
   );
 });
 
-// Add this styled component definition after MessageContainer and before InputContainer
+// Update FlatListContainer to flip the content
 const FlatListContainer = styled.div`
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 1rem;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1217,19 +1218,13 @@ const MainPage: React.FC = () => {
 
         if (existingMessages) {
           console.log('=== Initial Messages Load ===');
-          console.log('Raw messages from DB:', existingMessages.map(m => ({
-            content: m.content,
-            created_at: m.created_at
-          })));
-          
-          const reversedMessages = existingMessages.reverse(); // Reverse to show in chronological order
-          setMessages(reversedMessages);
+          setMessages(existingMessages); // Don't reverse, keep in descending order
           setHasMoreMessages(existingMessages.length === MESSAGES_PER_PAGE);
           if (existingMessages.length > 0) {
-            setOldestLoadedTimestamp(reversedMessages[0].created_at); // Use first message after reversal
+            setOldestLoadedTimestamp(existingMessages[existingMessages.length - 1].created_at);
           }
           
-          const nextNumber = getNextUserNumber(reversedMessages);
+          const nextNumber = getNextUserNumber(existingMessages);
           setUserNumberForRoom(navigationTitle, nextNumber);
           
           setTimeout(() => scrollToBottom(true), 100);
@@ -1448,7 +1443,6 @@ const MainPage: React.FC = () => {
       setIsLoadingMore(true);
       
       try {
-        // Fetch messages older than our current oldest, but get them in descending order
         const { data: olderMessages, error } = await supabase
           .from('messages')
           .select('*')
@@ -1460,21 +1454,9 @@ const MainPage: React.FC = () => {
         if (error) throw error;
 
         if (olderMessages && olderMessages.length > 0) {
-          // Preserve scroll position
-          const scrollHeight = container.scrollHeight;
-          
-          // Reverse the messages to maintain chronological order and add to beginning
-          const chronologicalMessages = olderMessages.reverse();
-          setMessages(prev => [...chronologicalMessages, ...prev]);
-          setOldestLoadedTimestamp(chronologicalMessages[0].created_at);
+          setMessages(prev => [...prev, ...olderMessages]); // Just append in descending order
+          setOldestLoadedTimestamp(olderMessages[olderMessages.length - 1].created_at);
           setHasMoreMessages(olderMessages.length === MESSAGES_PER_PAGE);
-          
-          // Restore scroll position after messages are added
-          requestAnimationFrame(() => {
-            const newScrollHeight = container.scrollHeight;
-            const scrollDiff = newScrollHeight - scrollHeight;
-            container.scrollTop = scrollDiff;
-          });
         } else {
           setHasMoreMessages(false);
         }
@@ -1982,10 +1964,10 @@ const MainPage: React.FC = () => {
               >
                 {messages.length > 0 ? (
                   <>
+                    {renderMessages()}
                     {isLoadingMore && (
                       <LoadingIndicator>Loading more messages...</LoadingIndicator>
                     )}
-                    {renderMessages()}
                     {/* Ghost messages remain unchanged */}
                     {[
                       ...typingUsers
