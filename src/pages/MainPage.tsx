@@ -42,6 +42,12 @@ interface AnimatedTypingState {
   clearedAt?: number;    // Add this to track when content was cleared
 }
 
+// Add this interface near the top with other interfaces
+interface RoomJoinState {
+  room_id: string;
+  hasJoined: boolean;
+}
+
 const shapeNames = [
   // 1D
   "POINT",
@@ -1177,6 +1183,9 @@ const MainPage: React.FC = () => {
     lastUpdated: number;
   } | null>(null);
 
+  // Add this state after other useState declarations
+  const [joinedRooms, setJoinedRooms] = useState<RoomJoinState[]>([]);
+
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
       setIsConnected(connected);
@@ -1459,10 +1468,12 @@ const MainPage: React.FC = () => {
     }
   };
 
+  // Replace the handleFirstType function with this updated version
   const handleFirstType = async () => {
-    if (!hasTyped) {
-      setHasTyped(true);
-      
+    // Check if user has already joined this specific room
+    const hasJoinedRoom = joinedRooms.some(room => room.room_id === navigationTitle);
+    
+    if (!hasJoinedRoom) {
       const currentUserNumber = getCurrentUserNumber();
       if (currentUserNumber === 0) {
         console.error('Invalid user number');
@@ -1482,7 +1493,10 @@ const MainPage: React.FC = () => {
         local: true
       };
 
-      setMessages(prev => [...prev, localJoinMessage]);
+      setMessages(prev => [localJoinMessage, ...prev]);
+      // Mark this room as joined
+      setJoinedRooms(prev => [...prev, { room_id: navigationTitle, hasJoined: true }]);
+      
       // Force scroll after local message
       setTimeout(() => scrollToBottom(true), 0);
 
@@ -1499,12 +1513,32 @@ const MainPage: React.FC = () => {
       if (error) {
         console.error('Error sending join message:', error);
         setMessages(prev => prev.filter(msg => msg.id !== localJoinMessage.id));
+        // Remove the room from joined rooms if the message failed
+        setJoinedRooms(prev => prev.filter(room => room.room_id !== navigationTitle));
       } else {
         // Force scroll after server confirmation
         setTimeout(() => scrollToBottom(true), 100);
       }
     }
   };
+
+  // Add this effect to clear joined rooms state when switching rooms
+  useEffect(() => {
+    // Optional: Clear joined rooms that are over 1 hour old
+    const oneHourAgo = new Date();
+    oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+    
+    setJoinedRooms(prev => prev.filter(room => {
+      const message = messages.find(msg => 
+        msg.room_id === room.room_id && 
+        msg.sender_id === anonymousId &&
+        msg.type === 'join'
+      );
+      
+      // Keep the room if there's a recent join message
+      return message && new Date(message.created_at) > oneHourAgo;
+    }));
+  }, [navigationTitle]);
 
   // Add effect to update URL when room changes
   useEffect(() => {
