@@ -483,7 +483,7 @@ const LoopCount = styled.span`
 `;
 
 const MESSAGES_PER_PAGE = 20;
-const SCROLL_THRESHOLD = 100; // pixels from top to trigger loading more
+const SCROLL_THRESHOLD = 200;
 
 const LoadingIndicator = styled.div`
   text-align: center;
@@ -1093,6 +1093,42 @@ const MessageBubbleWithWidth = React.memo<{
   );
 });
 
+// Add this styled component definition after MessageContainer and before InputContainer
+const FlatListContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
+  padding: 0rem;
+  padding-bottom: 1rem;
+  padding-top: 1rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  @media (max-width: 700px) {
+    flex: 1;
+    height: 0; // Force it to shrink
+  }
+
+  /* Custom scrollbar styling */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
+`;
+
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
     const path = window.location.pathname;
@@ -1166,7 +1202,7 @@ const MainPage: React.FC = () => {
           return;
         }
 
-        // Then get all messages for this room
+        // Then get the most recent messages for this room
         const { data: existingMessages, error: messagesError } = await supabase
           .from('messages')
           .select('*')
@@ -1180,11 +1216,17 @@ const MainPage: React.FC = () => {
         }
 
         if (existingMessages) {
-          const reversedMessages = existingMessages.reverse();
+          console.log('=== Initial Messages Load ===');
+          console.log('Raw messages from DB:', existingMessages.map(m => ({
+            content: m.content,
+            created_at: m.created_at
+          })));
+          
+          const reversedMessages = existingMessages.reverse(); // Reverse to show in chronological order
           setMessages(reversedMessages);
           setHasMoreMessages(existingMessages.length === MESSAGES_PER_PAGE);
           if (existingMessages.length > 0) {
-            setOldestLoadedTimestamp(existingMessages[0].created_at);
+            setOldestLoadedTimestamp(reversedMessages[0].created_at); // Use first message after reversal
           }
           
           const nextNumber = getNextUserNumber(reversedMessages);
@@ -1400,11 +1442,13 @@ const MainPage: React.FC = () => {
 
   const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
+    const isNearTop = container.scrollTop <= SCROLL_THRESHOLD;
     
-    if (container.scrollTop <= SCROLL_THRESHOLD && !isLoadingMore && hasMoreMessages) {
+    if (isNearTop && !isLoadingMore && hasMoreMessages) {
       setIsLoadingMore(true);
       
       try {
+        // Fetch messages older than our current oldest, but get them in descending order
         const { data: olderMessages, error } = await supabase
           .from('messages')
           .select('*')
@@ -1419,15 +1463,18 @@ const MainPage: React.FC = () => {
           // Preserve scroll position
           const scrollHeight = container.scrollHeight;
           
-          setMessages(prev => [...olderMessages.reverse(), ...prev]);
-          setOldestLoadedTimestamp(olderMessages[olderMessages.length - 1].created_at);
-          
-          // Restore scroll position after new messages are added
-          requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight - scrollHeight;
-          });
-
+          // Reverse the messages to maintain chronological order and add to beginning
+          const chronologicalMessages = olderMessages.reverse();
+          setMessages(prev => [...chronologicalMessages, ...prev]);
+          setOldestLoadedTimestamp(chronologicalMessages[0].created_at);
           setHasMoreMessages(olderMessages.length === MESSAGES_PER_PAGE);
+          
+          // Restore scroll position after messages are added
+          requestAnimationFrame(() => {
+            const newScrollHeight = container.scrollHeight;
+            const scrollDiff = newScrollHeight - scrollHeight;
+            container.scrollTop = scrollDiff;
+          });
         } else {
           setHasMoreMessages(false);
         }
@@ -1929,17 +1976,16 @@ const MainPage: React.FC = () => {
                   {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
                 </ViewerCount>
               </ChatHeader>
-              <MessageContainer 
+              <FlatListContainer 
                 ref={messageContainerRef}
                 onScroll={handleScroll}
               >
-                {isLoadingMore && (
-                  <LoadingIndicator>Loading more messages...</LoadingIndicator>
-                )}
                 {messages.length > 0 ? (
                   <>
+                    {isLoadingMore && (
+                      <LoadingIndicator>Loading more messages...</LoadingIndicator>
+                    )}
                     {renderMessages()}
-                    
                     {/* Ghost messages remain unchanged */}
                     {[
                       ...typingUsers
@@ -2007,7 +2053,7 @@ const MainPage: React.FC = () => {
                     </EmptyStateText>
                   </EmptyStateContainer>
                 )}
-              </MessageContainer>
+              </FlatListContainer>
               <InputContainer onSubmit={handleSubmitMessage}>
                 <MessageInput
                   value={newMessage}
