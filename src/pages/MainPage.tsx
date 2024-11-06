@@ -508,13 +508,17 @@ const ViewerCount = styled.div`
   padding-top: 0.1rem;
 `;
 
-const JoinMessage = styled.div`
-  text-align: center;
-  padding: 0rem;
-  margin: 0rem;
+const JoinMessage = styled.div<{ $isUser: boolean }>`
+  text-align: ${props => props.$isUser ? 'right' : 'left'};
+  padding: 0rem 0.5rem;
+  margin: 0;
   color: #666;
   font-family: 'DM Mono', monospace;
-  font-size: 0.9rem;
+  border-left: ${props => props.$isUser ? 'none' : '1.5px solid #666'};
+  border-right: ${props => props.$isUser ? '1.5px solid #666' : 'none'};
+  font-size: 0.8rem;
+  align-self: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
+  max-width: 80%;
 `;
 
 const HelpButton = styled.button`
@@ -1386,6 +1390,9 @@ const MainPage: React.FC = () => {
   };
 
   const autoResizeTextArea = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    // Call handleFirstType on first input
+    handleFirstType();
+    
     const textarea = e.target;
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight}px`;
@@ -1884,7 +1891,10 @@ const MainPage: React.FC = () => {
           
           if (firstMessage.type === 'join') {
             return (
-              <JoinMessage key={firstMessage.id}>
+              <JoinMessage 
+                key={firstMessage.id} 
+                $isUser={firstMessage.sender_id === anonymousId}
+              >
                 {firstMessage.content}
               </JoinMessage>
             );
