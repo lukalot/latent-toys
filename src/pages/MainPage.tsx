@@ -1249,27 +1249,10 @@ const MainPage: React.FC = () => {
           filter: `room_id=eq.${navigationTitle}`,
         },
         (payload) => {
-          // Add extensive debug logging
-          console.log('=== MESSAGE RECEIVED ===', {
-            messageRoom: payload.new.room_id,
-            currentRoom: navigationTitle,
-            message: payload.new.content,
-            sender: payload.new.sender_id,
-            filter: `room_id=eq.${navigationTitle}`,
-            shouldShow: payload.new.room_id === navigationTitle
-          });
-
-          // Strict room check
           if (payload.new.room_id !== navigationTitle) {
-            console.log('Ignoring message - wrong room:', {
-              messageRoom: payload.new.room_id,
-              currentRoom: navigationTitle
-            });
             return;
           }
 
-          console.log('Processing message for room:', navigationTitle);
-          
           if (payload.new.sender_id !== anonymousId) {
             playMessageSound();
           }
@@ -1280,11 +1263,12 @@ const MainPage: React.FC = () => {
             )
           );
           
+          // Add new messages to the beginning of the array for column-reverse layout
           setMessages(current => {
             const filtered = current.filter(msg => 
               !(msg.local && msg.content === payload.new.content)
             );
-            return [...filtered, payload.new as Message];
+            return [payload.new as Message, ...filtered];
           });
         }
       )
@@ -1332,7 +1316,6 @@ const MainPage: React.FC = () => {
 
     const currentUserNumber = getCurrentUserNumber();
     
-    // Clear local ghost immediately
     setLocalGhostMessage(null);
     
     const tempMessage: Message = {
@@ -1345,7 +1328,7 @@ const MainPage: React.FC = () => {
       local: true
     };
 
-    setMessages(prev => [...prev, tempMessage]);
+    setMessages(prev => [tempMessage, ...prev]);
     setNewMessage('');
     
     // Reset textarea height
@@ -1354,7 +1337,7 @@ const MainPage: React.FC = () => {
       textarea.style.height = 'auto';
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('messages')
       .insert({
         content: sanitizedMessage,
@@ -1437,6 +1420,7 @@ const MainPage: React.FC = () => {
 
   const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget;
+    // For reversed layout, we check scrollTop directly since "top" is visually at the bottom
     const isNearTop = container.scrollTop <= SCROLL_THRESHOLD;
     
     if (isNearTop && !isLoadingMore && hasMoreMessages) {
@@ -1454,7 +1438,7 @@ const MainPage: React.FC = () => {
         if (error) throw error;
 
         if (olderMessages && olderMessages.length > 0) {
-          setMessages(prev => [...prev, ...olderMessages]); // Just append in descending order
+          setMessages(prev => [...prev, ...olderMessages]);
           setOldestLoadedTimestamp(olderMessages[olderMessages.length - 1].created_at);
           setHasMoreMessages(olderMessages.length === MESSAGES_PER_PAGE);
         } else {
@@ -1673,11 +1657,13 @@ const MainPage: React.FC = () => {
         style: { '--rounded-width': `${width}px` }
       } as Message;
       
-      return current
-        .filter(msg => 
+      // Filter out local message and add new message at the start
+      return [
+        serverMessage,
+        ...current.filter(msg => 
           !(msg.local && msg.sender_id === payload.new.sender_id && msg.content === payload.new.content)
         )
-        .concat(serverMessage);
+      ];
     });
   };
 
@@ -1854,11 +1840,12 @@ const MainPage: React.FC = () => {
     };
   }, []);
 
-  // Add this helper function before the return statement
+  // Update the renderMessages function to handle ghost messages correctly
   const renderMessages = () => {
     let currentGroup: Message[] = [];
     const messageGroups: Message[][] = [];
     
+    // First render all real messages
     messages.forEach((message, index) => {
       if (message.type === 'join') {
         // Flush current group if any
@@ -1871,12 +1858,11 @@ const MainPage: React.FC = () => {
       } else if (
         currentGroup.length > 0 && 
         currentGroup[0].sender_id === message.sender_id &&
-        // Optional: Check if messages are within 2 minutes of each other
         Math.abs(new Date(currentGroup[currentGroup.length - 1].created_at).getTime() - 
                 new Date(message.created_at).getTime()) < 120000
       ) {
         // Add to current group if same sender
-        currentGroup.push(message);
+        currentGroup.unshift(message); // Use unshift to maintain correct order within group
       } else {
         // Flush current group if any and start new one
         if (currentGroup.length > 0) {
@@ -1891,33 +1877,37 @@ const MainPage: React.FC = () => {
       messageGroups.push(currentGroup);
     }
 
-    return messageGroups.map((group, groupIndex) => {
-      const firstMessage = group[0];
-      
-      if (firstMessage.type === 'join') {
-        return (
-          <JoinMessage key={firstMessage.id}>
-            {firstMessage.content}
-          </JoinMessage>
-        );
-      }
+    return (
+      <>
+        {messageGroups.map((group, groupIndex) => {
+          const firstMessage = group[0];
+          
+          if (firstMessage.type === 'join') {
+            return (
+              <JoinMessage key={firstMessage.id}>
+                {firstMessage.content}
+              </JoinMessage>
+            );
+          }
 
-      const isUser = firstMessage.sender_id === anonymousId;
-      
-      return (
-        <MessageGroup key={`group-${groupIndex}`} $isUser={isUser}>
-          {group.map((message, messageIndex) => (
-            <MessageBubbleWithWidth
-              key={message.id}
-              message={message}
-              isUser={isUser}
-              isFirst={messageIndex === 0}
-              onNavigate={setNavigationTitle}
-            />
-          ))}
-        </MessageGroup>
-      );
-    });
+          const isUser = firstMessage.sender_id === anonymousId;
+          
+          return (
+            <MessageGroup key={`group-${groupIndex}`} $isUser={isUser}>
+              {group.map((message, messageIndex) => (
+                <MessageBubbleWithWidth
+                  key={message.id}
+                  message={message}
+                  isUser={isUser}
+                  isFirst={messageIndex === 0} // Change back to 0 to show header on first message
+                  onNavigate={setNavigationTitle}
+                />
+              ))}
+            </MessageGroup>
+          );
+        })}
+      </>
+    );
   };
 
   // Update the messages rendering in the MessageContainer
@@ -1964,11 +1954,7 @@ const MainPage: React.FC = () => {
               >
                 {messages.length > 0 ? (
                   <>
-                    {renderMessages()}
-                    {isLoadingMore && (
-                      <LoadingIndicator>Loading more messages...</LoadingIndicator>
-                    )}
-                    {/* Ghost messages remain unchanged */}
+                    {/* Ghost messages first (will appear at bottom visually) */}
                     {[
                       ...typingUsers
                         .filter(user => user.user !== anonymousId)
@@ -2022,6 +2008,10 @@ const MainPage: React.FC = () => {
                           </MarkdownContent>
                         </GhostMessageBubble>
                       ))}
+                    {renderMessages()}
+                    {isLoadingMore && (
+                      <LoadingIndicator>Loading more messages...</LoadingIndicator>
+                    )}
                   </>
                 ) : (
                   <EmptyStateContainer>
