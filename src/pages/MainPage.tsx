@@ -2201,7 +2201,7 @@ useEffect(() => {
                 >
                   t/{room.room_id}
                   <ViewerBadge>
-                    {room.viewer_count} {room.viewer_count === 1 ? 'viewer' : 'viewers'}
+                    {room.viewer_count} {room.viewer_count === 1 ? 'person' : 'people'}
                   </ViewerBadge>
                 </NavigationItem>
               ))}
@@ -2225,7 +2225,7 @@ useEffect(() => {
               <ChatHeader>
                 <ChatTitle>{navigationTitle}</ChatTitle>
                 <ViewerCount>
-                  {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
+                  {viewerCount} {viewerCount === 1 ? 'person' : 'people'}
                 </ViewerCount>
               </ChatHeader>
               <FlatListContainer 
