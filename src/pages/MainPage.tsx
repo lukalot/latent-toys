@@ -163,6 +163,7 @@ const Header = styled.header`
   justify-content: space-between;
   padding: 1rem 2rem;
   position: relative;
+  z-index: 10;
 `;
 
 const LogoContainer = styled.div`
@@ -189,20 +190,30 @@ const LogoText = styled.span`
   }
 `;
 
-const NavigationContainer = styled.div`
+const NavigationContainer = styled.div<{ $navigationOpen: boolean }>`
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   background-color: #000;
   padding: 0.5rem 0.65rem;
-  //border-radius: 0.5rem;
-  border-bottom: 1.5px solid #fff;
   width: 40%;
   max-width: 600px;
   display: flex;
   align-items: left;
   gap: 0.1rem;
   font-family: 'DM Mono', monospace;
+  
+  /* Use a pseudo-element for the border to prevent layout shift */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -1.5px;
+    border: ${props => props.$navigationOpen ? '1.5px solid #fff' : '1.5px solid transparent'};
+    pointer-events: none;
+  }
+
+  /* Move the bottom border to the container itself so it's always present */
+  border-bottom: 1.5px solid #fff;
 `;
 
 const NavigationPrefix = styled.div`
@@ -733,19 +744,6 @@ const GhostMessageBubble = styled(MessageBubble)`
   }
 `;
 
-const KeyboardAwareContainer = styled.div<{ $keyboardHeight: number }>`
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  
-  @media (max-width: 700px) {
-    position: relative;
-    height: ${props => `calc(100dvh - ${props.$keyboardHeight}px - 3.5rem)`}; // Account for header
-    transition: height 0.1s ease-out;
-  }
-`;
-
 // Add these new styled components after the existing MessageBubble component
 const MessageGroup = styled.div<{ $isUser: boolean }>`
   display: flex;
@@ -1108,6 +1106,85 @@ const FlatListContainer = styled.div`
   }
 `;
 
+// Add these styled components after NavigationContainer
+const NavigationDropdown = styled.div<{ $isOpen: boolean }>`
+  position: absolute;
+  top: 100%;
+  left: -1.5px; // Compensate for the border
+  right: -1.5px; // Compensate for the border
+  background-color: #000;
+  border: 1.5px solid #fff;
+  border-top: 1.5px dashed #fff;
+  margin-top: 0px; // Pull up to overlap with container border
+  opacity: ${props => props.$isOpen ? 1 : 0};
+  visibility: ${props => props.$isOpen ? 'visible' : 'hidden'};
+  z-index: 1;
+`;
+
+const NavigationList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+`;
+
+const NavigationItem = styled.button`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1rem;
+  background: none;
+  border: none;
+  color: #fff;
+  font-family: 'DM Mono', monospace;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+
+  &:hover {
+    background-color: #fff;
+    color: #000;
+  }
+`;
+
+const ViewerBadge = styled.span`
+  color: #666;
+  font-size: 0.9em;
+`;
+
+// Add this interface near other interfaces
+interface PopularRoom {
+  room_id: string;
+  viewer_count: number;
+}
+
+// Add this function near the top of the file, after interfaces
+const updateRoomPresence = async (roomId: string, viewerCount: number) => {
+  const { error } = await supabase
+    .from('presence')
+    .upsert(
+      { 
+        room_id: roomId,
+        viewer_count: viewerCount,
+        last_active: new Date().toISOString()
+      },
+      { onConflict: 'room_id' }
+    );
+
+  if (error) {
+    console.error('Error updating presence:', error);
+  }
+};
+
+// Add this near the top of the file with other constants
+const BLACKLISTED_ROOMS = [
+  'fuck',
+  'admin',
+  'system'
+];
+
+// Add this near other constants
+const MIN_ROOM_LENGTH = 3;
+
 const MainPage: React.FC = () => {
   const getInitialRoom = () => {
     const path = window.location.pathname;
@@ -1115,7 +1192,7 @@ const MainPage: React.FC = () => {
       return 'main';
     }
     if (path.startsWith('/t/')) {
-      const room = path.slice(3); // Remove '/t/'
+      const room = path.slice(3);
       const sanitized = sanitizeRoomName(room);
       return sanitized || 'main';
     }
@@ -1153,6 +1230,194 @@ const MainPage: React.FC = () => {
 
   // Add this state after other useState declarations
   const [joinedRooms, setJoinedRooms] = useState<RoomJoinState[]>([]);
+
+  // Add these new state declarations and refs
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false);
+  const [popularRooms, setPopularRooms] = useState<PopularRoom[]>([]);
+  const navigationRef = useRef<HTMLDivElement>(null);
+
+  // Add this function inside MainPage component
+  const leaveRoom = async (roomId: string) => {
+    try {
+      // Find and unsubscribe from the specific room's presence channel
+      const channels = supabase.getChannels();
+      const roomChannel = channels.find(ch => ch.topic === `presence:${roomId}`);
+      if (roomChannel) {
+        await roomChannel.unsubscribe();
+      }
+
+      // Update presence count for the room we're leaving
+      const { data: currentPresence } = await supabase
+        .from('presence')
+        .select('viewer_count')
+        .eq('room_id', roomId)
+        .single();
+
+      if (currentPresence) {
+        const newCount = Math.max(0, currentPresence.viewer_count - 1);
+        await updateRoomPresence(roomId, newCount);
+
+        // If room is empty, remove it from presence table
+        if (newCount === 0) {
+          await supabase
+            .from('presence')
+            .delete()
+            .eq('room_id', roomId);
+        }
+      }
+    } catch (error) {
+      console.error('Error leaving room:', error);
+    }
+  };
+
+  // Update the useEffect that handles room changes
+  useEffect(() => {
+    // Only proceed if connected
+    if (!isConnected) return;
+
+    let previousRoom = '';
+
+    console.log('Loading messages for:', navigationTitle);
+
+    // Function to load messages
+    const loadToyMessages = async () => {
+      try {
+        // If we're coming from another room, clean up first
+        if (previousRoom && previousRoom !== navigationTitle) {
+          await leaveRoom(previousRoom);
+        }
+
+        // Store current room for next transition
+        previousRoom = navigationTitle;
+
+        // First ensure the room exists
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .upsert({ id: navigationTitle })
+          .select();
+
+        if (roomError) {
+          console.error('Error creating/updating room:', roomError);
+          return;
+        }
+
+        // Rest of your existing loadToyMessages code...
+      } catch (error) {
+        console.error('Error in loadToyMessages:', error);
+      }
+    };
+
+    // Load initial messages
+    loadToyMessages();
+
+    // Cleanup function
+    return () => {
+      if (previousRoom) {
+        leaveRoom(previousRoom);
+      }
+    };
+  }, [navigationTitle, isConnected, anonymousId]);
+
+  // Update the resetPresenceState function
+  const resetPresenceState = async () => {
+    try {
+      // 1. Delete all records from the presence table
+      const { error: deleteError } = await supabase
+        .from('presence')
+        .delete()
+        .neq('room_id', ''); // Delete all records
+
+      if (deleteError) throw deleteError;
+
+      // 2. Force all presence channels to unsubscribe
+      const channels = supabase.getChannels();
+      await Promise.all(channels.map(channel => {
+        if (channel.topic.startsWith('presence:')) {
+          return channel.unsubscribe();
+        }
+      }));
+
+      // 3. Resubscribe only to current room's presence
+      const newChannel = supabase.channel(`presence:${navigationTitle}`, {
+        config: {
+          presence: {
+            key: anonymousId,
+          },
+        }
+      });
+
+      setupViewerHandlers(newChannel);
+
+      console.log('Presence state reset complete');
+    } catch (error) {
+      console.error('Error resetting presence state:', error);
+    }
+  };
+
+  // Add near the start of the MainPage component
+useEffect(() => {
+  // Make resetPresenceState available globally
+  (window as any).resetPresenceState = resetPresenceState;
+}, []);
+
+// Add effect to make resetPresenceState available globally
+useEffect(() => {
+  (window as any).resetPresenceState = resetPresenceState;
+}, [resetPresenceState]); // Add resetPresenceState as dependency
+
+  // Add this effect for handling clicks outside navigation
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (navigationRef.current && !navigationRef.current.contains(event.target as Node)) {
+        setIsNavigationOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Update the useEffect for popular rooms to include real-time subscription
+  useEffect(() => {
+    const fetchPopularRooms = async () => {
+      try {
+        // Get presence data directly from the database
+        const { data: presenceData, error } = await supabase
+          .from('presence')
+          .select('room_id, viewer_count')
+          .not('room_id', 'in', `(${BLACKLISTED_ROOMS.map(r => `'${r}'`).join(',')})`)
+          .gt('viewer_count', 0) // Only get rooms with active viewers
+          .gt('room_id', '')
+          .gte('last_active', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // Only get rooms active in last 5 minutes
+          .order('viewer_count', { ascending: false })
+          .limit(8);
+
+        if (error) throw error;
+
+        if (presenceData) {
+          // Filter and sort rooms
+          const filteredRooms = presenceData
+            .filter(room => 
+              room.room_id.length >= MIN_ROOM_LENGTH && 
+              !BLACKLISTED_ROOMS.includes(room.room_id.toLowerCase())
+            )
+            .sort((a, b) => b.viewer_count - a.viewer_count)
+            .slice(0, 4);
+
+          console.log('Popular rooms:', filteredRooms);
+          setPopularRooms(filteredRooms);
+        }
+      } catch (error) {
+        console.error('Error fetching popular rooms:', error);
+      }
+    };
+
+    if (isNavigationOpen) {
+      fetchPopularRooms();
+      const interval = setInterval(fetchPopularRooms, 2000); // Poll every 2 seconds while open
+      return () => clearInterval(interval);
+    }
+  }, [isNavigationOpen]);
 
   useEffect(() => {
     checkSupabaseConnection().then(connected => {
@@ -1743,7 +2008,7 @@ const MainPage: React.FC = () => {
 
   const setupViewerHandlers = (channel: any) => {
     channel
-      .on('presence', { event: 'sync' }, () => {
+      .on('presence', { event: 'sync' }, async () => {
         const state = channel.presenceState();
         const newCount = Object.keys(state).length;
         
@@ -1755,10 +2020,17 @@ const MainPage: React.FC = () => {
             setViewerCount(newCount);
           }, 1000);
         }
+
+        // Update presence for current room
+        await updateRoomPresence(navigationTitle, newCount);
       })
       .subscribe(async (status: 'SUBSCRIBED' | 'CLOSED' | 'TIMED_OUT' | 'CHANNEL_ERROR') => {
         if (status === 'SUBSCRIBED') {
-          await channel.track({ user: anonymousId });
+          // Track both user and room info
+          await channel.track({
+            user: anonymousId,
+            room_id: navigationTitle
+          });
         }
       });
   };
@@ -1808,6 +2080,23 @@ const MainPage: React.FC = () => {
       document.removeEventListener('focus', handleFocus, true);
       document.removeEventListener('blur', handleBlur, true);
     };
+  }, []);
+
+  // Add cleanup for stale presence data
+  useEffect(() => {
+    const cleanupStalePresence = async () => {
+      const oneHourAgo = new Date();
+      oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+
+      await supabase
+        .from('presence')
+        .delete()
+        .lt('last_active', oneHourAgo.toISOString());
+    };
+
+    // Run cleanup every hour
+    const interval = setInterval(cleanupStalePresence, 60 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Update the renderMessages function to handle ghost messages correctly
@@ -1891,14 +2180,33 @@ const MainPage: React.FC = () => {
           <LogoIcon src={logoSvg} alt="Latent Toys Logo" />
           <LogoText>latent.toys</LogoText>
         </LogoContainer>
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef} $navigationOpen={isNavigationOpen}>
           <NavigationPrefix>t/</NavigationPrefix>
           <NavigationField
             type="text"
             value={navigationTitle}
             onChange={handleNavigationChange}
             placeholder="Enter a room..."
+            onFocus={() => setIsNavigationOpen(true)}
           />
+          <NavigationDropdown $isOpen={isNavigationOpen}>
+            <NavigationList>
+              {popularRooms.map(room => (
+                <NavigationItem
+                  key={room.room_id}
+                  onClick={() => {
+                    setNavigationTitle(room.room_id);
+                    setIsNavigationOpen(false);
+                  }}
+                >
+                  t/{room.room_id}
+                  <ViewerBadge>
+                    {room.viewer_count} {room.viewer_count === 1 ? 'viewer' : 'viewers'}
+                  </ViewerBadge>
+                </NavigationItem>
+              ))}
+            </NavigationList>
+          </NavigationDropdown>
         </NavigationContainer>
         <AuthButtons>
           <LoginButton><s>Log in</s></LoginButton>
@@ -1914,7 +2222,6 @@ const MainPage: React.FC = () => {
           </PlaceholderContainer>
         ) : (
           <ChatContainer>
-            <KeyboardAwareContainer $keyboardHeight={keyboardHeight}>
               <ChatHeader>
                 <ChatTitle>{navigationTitle}</ChatTitle>
                 <ViewerCount>
@@ -2008,7 +2315,6 @@ const MainPage: React.FC = () => {
                   rows={1}
                 />
               </InputContainer>
-            </KeyboardAwareContainer>
           </ChatContainer>
         )}
       </MainContent>
