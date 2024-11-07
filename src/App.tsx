@@ -1,11 +1,11 @@
-import MainPage from './pages/MainPage';
+import MainPageNew from './pages/MainPageNew';
 import GlobalStyles from './styles/GlobalStyles';
 
 function App() {
   return (
     <>
       <GlobalStyles />
-      <MainPage />
+      <MainPageNew />
     </>
   );
 }

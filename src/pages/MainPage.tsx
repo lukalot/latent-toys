@@ -1763,53 +1763,6 @@ const MainPage: React.FC = () => {
       });
   };
 
-  // Update the keyboard height effect
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    
-    if (!viewport) return;
-
-    const handleResize = () => {
-      if (document.activeElement?.tagName === 'TEXTAREA') {
-        const currentHeight = window.innerHeight - viewport.height;
-        setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
-        
-        // Force scroll to bottom when keyboard appears
-        setTimeout(() => scrollToBottom(true), 100);
-      } else {
-        setKeyboardHeight(0);
-      }
-    };
-
-    viewport.addEventListener('resize', handleResize);
-    viewport.addEventListener('scroll', handleResize);
-
-    // Also handle focus/blur events
-    const handleFocus = () => {
-      if (document.activeElement?.tagName === 'TEXTAREA') {
-        setTimeout(() => {
-          const currentHeight = window.innerHeight - viewport.height;
-          setKeyboardHeight(currentHeight > 0 ? currentHeight : 0);
-          scrollToBottom(true);
-        }, 100);
-      }
-    };
-
-    const handleBlur = () => {
-      setKeyboardHeight(0);
-    };
-
-    document.addEventListener('focus', handleFocus, true);
-    document.addEventListener('blur', handleBlur, true);
-
-    return () => {
-      viewport.removeEventListener('resize', handleResize);
-      viewport.removeEventListener('scroll', handleResize);
-      document.removeEventListener('focus', handleFocus, true);
-      document.removeEventListener('blur', handleBlur, true);
-    };
-  }, []);
-
   // Update the renderMessages function to handle ghost messages correctly
   const renderMessages = () => {
     let currentGroup: Message[] = [];
@@ -1914,7 +1867,6 @@ const MainPage: React.FC = () => {
           </PlaceholderContainer>
         ) : (
           <ChatContainer>
-            <KeyboardAwareContainer $keyboardHeight={keyboardHeight}>
               <ChatHeader>
                 <ChatTitle>{navigationTitle}</ChatTitle>
                 <ViewerCount>
@@ -2008,7 +1960,6 @@ const MainPage: React.FC = () => {
                   rows={1}
                 />
               </InputContainer>
-            </KeyboardAwareContainer>
           </ChatContainer>
         )}
       </MainContent>
